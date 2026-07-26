@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Env / secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Supabase local
+.supabase/
+supabase/.branches
+supabase/.temp
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Testing
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code — keep shared project config, ignore local overrides
+.claude/settings.local.json

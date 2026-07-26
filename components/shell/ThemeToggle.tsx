@@ -1,0 +1,63 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type Theme = "dark" | "light";
+
+function getInitialTheme(): Theme {
+  if (typeof document !== "undefined") {
+    const t = document.documentElement.getAttribute("data-theme");
+    if (t === "light" || t === "dark") return t;
+  }
+  return "dark";
+}
+
+/**
+ * Flips `data-theme` on <html> and persists to localStorage.
+ * The no-flash script in app/layout.tsx applies the saved value before paint;
+ * this just toggles it thereafter. Matches the theme button in the design.
+ */
+export default function ThemeToggle() {
+  const [theme, setTheme] = useState<Theme>("dark");
+
+  // Sync state to whatever the no-flash script already set on <html>.
+  useEffect(() => {
+    setTheme(getInitialTheme());
+  }, []);
+
+  function toggle() {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem("prep-theme", next);
+    } catch {
+      /* storage unavailable — theme still applies for the session */
+    }
+    setTheme(next);
+  }
+
+  const label = theme === "dark" ? "☾ Dark" : "☀ Light";
+
+  return (
+    <button
+      onClick={toggle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "8px",
+        padding: "8px",
+        marginBottom: "12px",
+        border: "1px solid var(--border)",
+        background: "transparent",
+        color: "var(--text-muted)",
+        borderRadius: "8px",
+        cursor: "pointer",
+        fontFamily: "'IBM Plex Mono',monospace",
+        fontSize: "12px",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
