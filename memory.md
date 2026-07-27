@@ -130,6 +130,18 @@
   reach it (that's only Next.js runtime), so MCP stayed unauthorized; verification
   was done via direct Management API calls instead.
 
+## Deploy / infra facts
+
+- **2026-07-27 · Phase 0 shipped to Vercel.** Repo:
+  github.com/harshitsingh281125-stack/Prep (personal account; pushed over HTTPS with
+  a repo-scoped fine-grained PAT via a one-off token URL so nothing landed in
+  `.git/config` — the machine also has a work GitHub identity, so origin is stored
+  clean with no creds). Live: prep-seven-theta.vercel.app. Vercel env vars =
+  the 3 app vars only (URL, anon, service_role) — NOT the MCP token/ref. Supabase
+  Auth URL config: Site URL = the Vercel URL; Redirect URLs include both
+  `https://prep-seven-theta.vercel.app/**` and `http://localhost:3000/**`. Prod
+  signup + profiles trigger + auth gate all verified against the live origin.
+
 ## Verified subsystems (explain-cold ready)
 
 - **2026-07-26 · Phase 0 auth + RLS foundation — verified end-to-end.**

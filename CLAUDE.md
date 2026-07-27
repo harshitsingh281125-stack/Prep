@@ -19,6 +19,9 @@ Full context lives in these docs — **read them before non-trivial work**:
 - [memory.md](./memory.md) — decisions + bugs log (append as we go)
 - [interview.md](./interview.md) — resume bullets + interviewer Q&A (**this is a
   resume project** — update as subsystems get built)
+- [nextjs-tutorial.md](./nextjs-tutorial.md) — running Next.js concept doc, grounded
+  in Prep's actual files (**the user knows React, not Next.js** — this is how they'll
+  answer Next.js interview questions; keep it current as new concepts get used)
 
 ## Stack
 
@@ -71,6 +74,13 @@ Full context lives in these docs — **read them before non-trivial work**:
   a real piece (schema, scheduler, gateway, a bug fix), fill in its deep-dive /
   "why not X" / bug-story section — but only with answers that can be explained
   cold. No speculative answers for things not yet built.
+- **Update [nextjs-tutorial.md](./nextjs-tutorial.md) whenever we use a new Next.js
+  concept.** The user knows React but not Next.js and needs to defend this project in
+  interviews. When a phase introduces a Next.js feature not yet in the doc (dynamic
+  `[id]` routes, `loading.tsx`, `error.tsx`, data-fetching/caching, `generateMetadata`,
+  streaming, etc.), add a section in the same format (**What / Why-as-a-React-dev /
+  Where in Prep / Interview Q**), always grounded in the real file we just wrote. Only
+  document concepts actually used in the code — no speculative theory.
 - Prefer raw SQL migrations checked into the repo over ad-hoc schema changes.
 
 ## How to write code here (coding discipline)
