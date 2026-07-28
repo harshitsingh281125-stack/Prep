@@ -142,7 +142,33 @@
   `https://prep-seven-theta.vercel.app/**` and `http://localhost:3000/**`. Prod
   signup + profiles trigger + auth gate all verified against the live origin.
 
+## Bugs hit + fixed (continued)
+
+- **2026-07-28 · Google OAuth redirected to prod /login (with ?code=) instead of
+  /auth/callback — dev port not in Supabase's redirect allow-list.**
+  Symptom: clicking "Continue with Google" on localhost:3100 → Google consent → landed
+  back on `https://prep-seven-theta.vercel.app/login?code=...`, stuck (user created in
+  Supabase, but no session). Root cause: the browser sent `redirectTo=
+  http://localhost:3100/auth/callback`, but the Supabase **Redirect URLs** allow-list
+  only had `http://localhost:3000/**` (wrong port). Supabase rejects a non-allow-listed
+  `redirect_to` and **falls back to the Site URL** (the Vercel origin) at its default
+  path — so the `code` hit `/login`, which has no exchange logic (only `/auth/callback`
+  does). Fix: add `http://localhost:3100/**` to the allow-list. Lesson: every origin
+  *and port* you start an OAuth flow from must be in Supabase's redirect allow-list;
+  otherwise it silently falls back to Site URL. Good "config bug that looked like a
+  code bug" interview story.
+
 ## Verified subsystems (explain-cold ready)
+
+- **2026-07-28 · Google OAuth (Stage C) — verified end-to-end.**
+  Browser Supabase client `signInWithOAuth({provider:'google', redirectTo:
+  '/auth/callback'})` → Google consent → `/auth/callback` route handler
+  `exchangeCodeForSession` → session cookie → `/library`. Signup trigger fires for
+  OAuth too (profile auto-created, display_name from Google metadata). Google client
+  in Google Cloud Console (Web app, test-user mode); provider enabled in Supabase with
+  client id/secret; redirect URI `https://<ref>.supabase.co/auth/v1/callback`. Both
+  email + Google auth paths now live. Documented in nextjs-tutorial.md §7b (two
+  Supabase clients + browser-driven OAuth flow).
 
 - **2026-07-26 · Phase 0 auth + RLS foundation — verified end-to-end.**
   Email/password signup → session issued (confirm-email off for dev) → DB trigger
