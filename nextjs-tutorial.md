@@ -227,6 +227,57 @@ HTTP endpoints (webhooks, callbacks, public APIs).
 
 ---
 
+## 7b. Two Supabase clients + a browser-driven OAuth flow *(added: Stage C Google)*
+
+**What.** Because code runs in two places (server and browser), Prep has **two**
+Supabase clients, and you pick the one for where your code executes:
+- `lib/supabase/client.ts` → `createBrowserClient` — for **client components**
+  (`"use client"`). Runs in the browser.
+- `lib/supabase/server.ts` → `createServerClient` — for **server** code (server
+  components, route handlers, server actions). Reads/writes the session via cookies.
+
+**Why (as a React dev).** In a Vite SPA there's one client, always in the browser.
+Here, "where does this line of code run?" is a real question — a server component
+can't use the browser client (no `window`), and a client component can't use the
+server client (no cookie store, no secrets). Same library, two entry points, chosen
+by execution context.
+
+**Where in Prep — the Google OAuth flow touches both + a route handler:**
+1. **Browser** (`app/login/page.tsx`, client component): clicking "Continue with
+   Google" calls `createClient()` (browser) → `supabase.auth.signInWithOAuth({
+   provider: "google", options: { redirectTo: \`${window.location.origin}/auth/callback\` }})`.
+   `window.location.origin` is only available in the browser — another reason this
+   must be a client component.
+2. The browser **navigates away** to Google's consent screen, then Google → Supabase
+   → back to our app at **`/auth/callback?code=...`**.
+3. **Server** (`app/auth/callback/route.ts`, a route handler — §6): reads the `code`,
+   calls `createClient()` (server) → `exchangeCodeForSession(code)`, which sets the
+   session **cookie**, then `NextResponse.redirect("/library")`.
+4. Now the cookie exists, so **middleware** (§5) and the `(app)` **layout** (§2) see a
+   logged-in user on the next request.
+
+So one auth flow demonstrates the whole model: browser client kicks it off → route
+handler on the server finishes it → cookie ties it together → server components read it.
+
+**Contrast with email login:** email/password used a **server action** (§7) — no
+browser redirect needed, the action talks to Supabase server-side directly. OAuth
+*must* start in the browser (it's a full redirect to Google), so it uses the browser
+client + a route handler instead. Two valid auth paths, two different Next primitives,
+picked by the shape of the flow.
+
+**Interview Q.** *"You're using Supabase on both client and server — how?"* → Two
+clients from `@supabase/ssr`: a browser client for client components and a
+cookie-based server client for server code; you pick by where the code runs. *"Walk me
+through your Google login."* → Browser client calls `signInWithOAuth` with a
+`redirectTo` of my `/auth/callback` route → user consents on Google → Supabase
+redirects back with a `code` → my route handler exchanges it server-side for a session
+cookie → redirect to `/library`, where the server components now see the user. *"Why is
+email login a server action but Google a route handler?"* → OAuth is a browser redirect,
+so it can't be a pure server action; email/password has no redirect so a server action
+is simpler.
+
+---
+
 ## 8. `next/link` & `usePathname` — client-side navigation
 
 **What.** `<Link href="...">` navigates without a full page reload (client-side

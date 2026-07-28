@@ -2,6 +2,7 @@
 
 import { useState, useActionState, type CSSProperties } from "react";
 import ThemeToggle from "@/components/shell/ThemeToggle";
+import { createClient } from "@/lib/supabase/client";
 import { signIn, signUp, type AuthResult } from "./actions";
 
 const labelStyle: CSSProperties = {
@@ -38,6 +39,28 @@ export default function LoginPage() {
   const cta = isSignup ? "Create account" : "Sign in";
   const switchPrompt = isSignup ? "Already have an account?" : "New here?";
   const switchLabel = isSignup ? "Sign in" : "Create one";
+
+  const [googlePending, setGooglePending] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  // OAuth is a browser redirect flow: the client kicks it off, the user bounces
+  // to Google, then Supabase redirects back to /auth/callback (our route handler)
+  // which exchanges the code for a session cookie. redirectTo uses the current
+  // origin so this works on both localhost and the Vercel URL.
+  async function signInWithGoogle() {
+    setGoogleError(null);
+    setGooglePending(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+    if (error) {
+      setGoogleError(error.message);
+      setGooglePending(false);
+    }
+    // On success the browser navigates away to Google — no further code runs.
+  }
   const errorMsg = state && "error" in state ? state.error : null;
 
   return (
@@ -153,19 +176,21 @@ export default function LoginPage() {
           </div>
 
           <button
-            disabled
-            title="Google OAuth added in a follow-up step"
+            type="button"
+            onClick={signInWithGoogle}
+            disabled={googlePending}
             style={{
               width: "100%",
               padding: "10px",
               borderRadius: "9px",
               border: "1px solid var(--border)",
               background: "var(--bg-elevated)",
-              color: "var(--text-faint)",
+              color: "var(--text)",
               font: "inherit",
               fontSize: "13.5px",
               fontWeight: 500,
-              cursor: "not-allowed",
+              cursor: googlePending ? "wait" : "pointer",
+              opacity: googlePending ? 0.7 : 1,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -178,20 +203,25 @@ export default function LoginPage() {
               <path fill="currentColor" opacity="0.45" d="M3.6 9.7A4.8 4.8 0 0 1 3.35 8c0-.6.1-1.15.25-1.7L1.4 4.6A7.5 7.5 0 0 0 .6 8c0 1.2.3 2.35.8 3.4l2.2-1.7z" />
               <path fill="currentColor" opacity="0.85" d="M8 15.5c1.9 0 3.5-.63 4.65-1.7l-2.15-1.65c-.6.4-1.4.65-2.5.65-2.1 0-3.8-1.3-4.4-3.1L1.4 11.4C2.6 13.8 5.1 15.5 8 15.5z" />
             </svg>
-            Continue with Google
+            {googlePending ? "Connecting…" : "Continue with Google"}
           </button>
 
-          <div
-            style={{
-              marginTop: "14px",
-              fontSize: "11px",
-              color: "var(--text-faint)",
-              fontFamily: "'IBM Plex Mono',monospace",
-              textAlign: "center",
-            }}
-          >
-            Google sign-in added next
-          </div>
+          {googleError && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "9px 12px",
+                borderRadius: "8px",
+                background: "var(--red-soft)",
+                border: "1px solid var(--red)",
+                color: "var(--red)",
+                fontSize: "12.5px",
+                lineHeight: 1.4,
+              }}
+            >
+              {googleError}
+            </div>
+          )}
         </div>
 
         <div style={{ textAlign: "center", marginTop: "18px", fontSize: "13px", color: "var(--text-muted)" }}>
