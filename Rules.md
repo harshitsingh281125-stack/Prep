@@ -17,20 +17,28 @@
 4. **A provider spend alert/cap** is configured in the console before any real
    model is wired to real traffic.
 5. **RLS on every table.** A user can only ever read/write rows where
-   `user_id = auth.uid()`. No table ships without a policy.
+   `user_id = auth.uid()`. No table ships without a policy. **One deliberate
+   exception:** the global `resources` corpus (Phase 4.5 RAG) holds shared vetted
+   references, not user data — reads are public-safe, writes are server-only (service
+   role). It is the *only* table without a `user_id`/RLS predicate, called out here
+   so the exception is explicit and defensible, not an oversight.
 6. **Service-role key is server-only.** Never imported into a client component.
 
 ## 2. AI usage rules
 
 7. **Product code depends on the AI Gateway interface, never a vendor SDK.**
-   Model/provider is a config binding, not code scattered through features.
+   Model/provider is a config binding, not code scattered through features. This is
+   why **no LangChain / LangGraph**: a single tiered `complete()` + `embed()` +
+   pgvector query is fully owned; a framework would re-introduce the exact vendor-SDK
+   spread this rule exists to prevent, and Prep has no agent loop for LangGraph to run.
 8. **Tiers, not model names, in product code** (`reasoning` | `classification`).
 9. **Every structured generation is schema-validated** with a retry-on-malformed
    path, then a **seeded-template fallback**. AI must **never hard-block** a user
    flow — the app stays usable with AI fully off.
 10. **Prompt caching** on fixed system/rubric scaffolding wherever the provider
     supports it.
-11. **Every AI call writes an `ai_usage` row** (route, model, tokens, cost).
+11. **Every AI call writes an `ai_usage` row** (route, model, tokens, cost) —
+    including `embed()` calls for RAG, not just completions.
 
 ## 3. Data & DB rules
 
@@ -72,3 +80,11 @@
     from the main prep plan. Scope down before burning out.
 26. **Every subsystem must be explainable cold** — if a piece can't be explained
     without notes, slow down before moving on (recognition ≠ recall).
+27. **QA gate after every feature.** When a feature/subsystem is code-complete, before
+    it's called "done" I write a **test-case doc** in [tests/](./tests/) — happy paths
+    **and** edge/negative/security cases, written to a QA-lead bar (boundary values,
+    RLS/quota bypass attempts, concurrency, malformed input, empty/loading/error states).
+    Each case has: ID · area · precondition · steps · expected · priority. I then **pause
+    and prompt the user to run them manually** and report Pass/Fail. Fails become bug-log
+    entries (Rule 23) and are fixed before the phase is marked demoable (Rule 24). No
+    phase advances on untested code. Test docs live in `tests/phase-<n>-<feature>.md`.

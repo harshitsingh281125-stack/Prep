@@ -14,6 +14,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.test.example
 
 # Supabase local
 .supabase/
@@ -36,6 +37,12 @@ yarn-error.log*
 
 # Testing
 coverage/
+# Playwright — saved sessions (contain auth tokens) + reports/artifacts
+tests/e2e/.auth/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
 
 # OS / editor
 .DS_Store

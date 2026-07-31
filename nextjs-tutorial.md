@@ -339,14 +339,161 @@ because it reads the auth cookie to load the current user; `/login` stays static
 
 ---
 
+# Phase 1 concepts
+
+Added when we built the roadmap experience on real DB data (Library, Onboarding,
+Roadmap, Topic).
+
+## 9. Dynamic route segments — `[id]`, and nested `[topicId]`
+
+**What.** A folder named `[something]` is a *dynamic segment* — it matches any value
+and hands it to the page as a param. Prep has two, one nested inside the other:
+
+| File | URL |
+|------|-----|
+| `app/(app)/roadmap/[id]/page.tsx` | `/roadmap/<any-roadmap-id>` |
+| `app/(app)/roadmap/[id]/topic/[topicId]/page.tsx` | `/roadmap/<id>/topic/<topicId>` |
+
+**Why (as a React dev).** In React Router you'd write `path="/roadmap/:id"` and read
+`useParams()`. Here the *folder name* is the param, and it's delivered to the server
+component as a prop — no hook, resolved before render.
+
+**The Next 15 gotcha:** `params` is now a **Promise** you must `await`:
+```ts
+export default async function RoadmapPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;               // ← await, not params.id directly
+```
+The nested topic page awaits *both*: `const { id, topicId } = await params;`. If you
+forget the `await`, TypeScript complains and `id` is `undefined` at runtime.
+
+**Where in Prep.** [app/(app)/roadmap/[id]/page.tsx](app/(app)/roadmap/[id]/page.tsx)
+uses `id` to fetch that one roadmap's weeks/topics; the topic page uses `topicId`.
+
+**Interview Q.** *"How do dynamic routes work in the App Router?"* → A `[param]` folder
+matches any segment; the value arrives as the `params` prop (a Promise in Next 15, so
+you await it). Nesting `[id]/topic/[topicId]` gives you both params on the inner page.
+
+## 10. Async server components that fetch the DB directly
+
+**What.** A server component can be `async` and `await` a data call *in the component
+body* — no `useEffect`, no loading state, no client fetch. The HTML arrives already
+populated.
+
+```ts
+export default async function LibraryPage() {
+  const supabase = await createClient();
+  const { data: roadmaps } = await supabase.from("roadmaps").select("…, topics(status)");
+  // …map to cards, then return JSX using them
+}
+```
+
+**Why (as a React dev).** In Vite this would be `useEffect(() => fetch(...))` + a
+spinner + a re-render. On the server there's no round-trip to the browser first: the
+component *is* the data layer. The DB read happens where the DB is (the server),
+under RLS, and only the finished HTML ships.
+
+**One-round-trip embeds.** Supabase's `select("…, topics(status)")` pulls the child
+rows in the same query (a join), so the Library computes `mastered/total` per roadmap
+without an N+1. The Roadmap page does the same with `weeks(…, topics(…))`.
+
+**Where in Prep.** [app/(app)/library/page.tsx](app/(app)/library/page.tsx),
+[app/(app)/roadmap/[id]/page.tsx](app/(app)/roadmap/[id]/page.tsx).
+
+**Interview Q.** *"How do you fetch data in a server component?"* → Just `await` it in
+the async component body; the framework renders after the promise resolves. No client
+fetch/effect. Good for anything the server can do under the user's RLS session.
+
+## 11. `export const dynamic = "force-dynamic"` — opting out of caching
+
+**What.** A route-segment config that forces the page to render **per request**,
+never prerendered or cached.
+
+**Why (as a React dev).** By default Next tries to be clever about caching. But
+per-user data (my roadmaps, my mastery state) must *never* be shared or stale — if
+Library got cached, user B could see user A's cards, or my new roadmap wouldn't show
+after onboarding. `force-dynamic` says "always fresh, always for this request's user."
+
+**Where in Prep.** Top of Library, Onboarding, Roadmap, Topic pages. (These read the
+auth cookie anyway, which already makes them dynamic — the flag is belt-and-suspenders
+and documents the intent.)
+
+**Interview Q.** *"How do you make sure a page isn't cached across users?"* →
+`export const dynamic = "force-dynamic"` on the segment; and reading cookies/headers
+makes it dynamic regardless. Per-user pages must render per-request.
+
+## 12. `notFound()` — the 404 escape hatch from a server component
+
+**What.** Calling `notFound()` (from `next/navigation`) inside a server component
+throws a special signal that renders the nearest `not-found` UI and returns a 404.
+
+**Why (as a React dev).** No manual `if (!data) return <NotFound/>` + status juggling.
+It's a control-flow throw the framework understands.
+
+**Where in Prep.** Roadmap + Topic pages: `if (!roadmap) notFound();`. Crucially this
+doubles as **authorization** — RLS means a stranger's roadmap id returns *no row*, so
+`notFound()` fires. A user can't view someone else's roadmap; they just get a 404,
+never a leaked record.
+
+**Interview Q.** *"How do you 404 from a server component, and how does that interact
+with your row security?"* → `notFound()`. Under RLS, another user's id returns zero
+rows → same 404 path, so the security check and the not-found check are the same line.
+
+## 13. Route Handlers as POST/DELETE APIs (with validation + status codes)
+
+**What.** A `route.ts` exporting `POST`/`DELETE` is a real HTTP endpoint. Phase 0 used
+one for OAuth callback (GET); Phase 1 adds mutating ones.
+
+- `POST /api/roadmaps/generate` — validates the body, enforces the quota **server-side**
+  (Rule 18), runs the seed generator, persists the tree, returns `{ id }` (201) or a
+  typed error + status (400/401/403/500).
+- `DELETE /api/roadmaps/[id]` — a dynamic segment on a *handler* (not a page); deletes
+  under RLS so a forged id can only ever delete *your own* row.
+
+**Why (as a React dev).** This is your Express/Fastify layer, but co-located with the
+UI and sharing the same auth. The client `fetch("/api/roadmaps/generate", { method:
+"POST", body })` and reads `res.ok` + the JSON.
+
+**Why these are routes and not client writes:** quota enforcement can't be trusted to
+the browser (Rule 18) — a user could just call the DB directly. So the *gated* writes
+go through a handler that checks the cap before inserting. Plain owned writes (toggling
+mastery, saving a note) *do* go direct via supabase-js under RLS — see the rule-of-thumb
+in [Architecture.md §1](./Architecture.md).
+
+**Where in Prep.** [app/api/roadmaps/generate/route.ts](app/api/roadmaps/generate/route.ts),
+[app/api/roadmaps/[id]/route.ts](app/api/roadmaps/[id]/route.ts).
+
+**Interview Q.** *"When does a write go through an API route vs straight to the DB?"* →
+If its integrity can't be guaranteed client-side (quota, AI, anything privileged) it
+needs a server route that verifies the session and the rule first. Owned rows under RLS
+(my note, my mastery flag) can be written directly.
+
+## 14. `router.refresh()` — re-running server components after a client write
+
+**What.** `useRouter().refresh()` re-fetches the current route's **server** components
+without a full reload, keeping client state.
+
+**Why (as a React dev).** After I check a kill criterion (client write to `topics`),
+the Roadmap/Library counts are computed on the *server* from the DB. `router.refresh()`
+tells those server components to re-run so the new mastery count shows — the client-side
+analog of "invalidate and refetch," but for server-rendered data.
+
+**Where in Prep.** After mastery toggle in
+[components/topic/TopicStudy.tsx](components/topic/TopicStudy.tsx) and after delete in
+[components/library/RoadmapCard.tsx](components/library/RoadmapCard.tsx).
+
+**Interview Q.** *"You wrote to the DB from a client component — how does the
+server-rendered count update?"* → `router.refresh()` re-runs the server components for
+the current route against fresh data, without losing client state or doing a hard reload.
+
+---
+
 ## Concepts still to come (added as we build)
 
-- **Data fetching & caching** — `async` server components awaiting the DB, `fetch`
-  caching, `revalidate`, `revalidateTag` *(Phase 1, when Library reads real roadmaps)*.
-- **`loading.tsx` / Suspense streaming** *(Phase 1–5 polish)*.
+- **`generateMetadata` (dynamic titles per roadmap)** *(later — nice-to-have)*.
+- **`loading.tsx` / Suspense streaming** *(Phase 5 polish)*.
 - **`error.tsx` error boundaries** *(Phase 5)*.
-- **Dynamic route segments** — `app/roadmap/[id]/page.tsx`, `params` *(Phase 1)*.
-- **`generateMetadata` (dynamic titles per roadmap)** *(Phase 1)*.
-- **Route handler POST APIs + request validation** *(Phase 4, the AI endpoints)*.
+- **`revalidatePath` / `revalidateTag`** — we use `router.refresh()` now; tag-based
+  revalidation may come with heavier caching later.
+- **The SM-2 scheduling write path** — a route handler applying the algorithm *(Phase 2)*.
 - **Streaming AI responses** *(Phase 4, maybe)*.
 - **`next/font` / `next/image` optimizations** *(Phase 5)*.

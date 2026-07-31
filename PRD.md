@@ -92,7 +92,10 @@ AI-powered surfaces in v1:
 1. **Roadmap generation** — onboarding answers → schema-enforced roadmap JSON
    (weeks, topics, kill criteria). Needs real reasoning → the "strong" model tier.
 2. **Study-plan / topic detail** — mental model + ranked resources + exercises
-   for a topic. Reasoning tier, cacheable scaffolding.
+   for a topic. Reasoning tier, cacheable scaffolding. **Resources are RAG-grounded**
+   (Phase 4.5) against a curated, embedded corpus so links are real/vetted, not
+   hallucinated; mental-model + exercises stay pure generation. See
+   [Architecture.md §5b](./Architecture.md).
 3. **Recall grading (assist)** — optional cheap-model check on short free-text
    recall answers ("close enough is a miss"). Classification tier. Self-grade
    always remains the fallback so the app works even with AI off.
