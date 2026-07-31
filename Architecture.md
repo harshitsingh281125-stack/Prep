@@ -69,7 +69,7 @@
 | Route | Method | Purpose | AI? |
 |-------|--------|---------|-----|
 | `/api/roadmaps/generate` | POST | onboarding answers → schema-valid roadmap → persist | ✅ reasoning tier |
-| `/api/topics/[id]/detail` | POST | generate/refresh mental model + resources + exercises | ✅ reasoning tier |
+| `/api/topics/[id]/detail` | POST | generate mental model + exercises; **RAG-ground** ranked resources on the curated corpus (Phase 4.5) | ✅ reasoning tier + `embed()` |
 | `/api/recall/[cardId]/grade` | POST | apply SM-2, write next due date | ⚪ optional cheap-tier assist |
 | `/api/recall/generate` | POST | derive recall cards for a topic | ✅ classification tier |
 | `/api/sessions` | POST | log study hours | ❌ |
@@ -214,22 +214,104 @@ interface AIGateway {
     schema?: JSONSchema;     // when set → validate + retry on malformed
     userId: string;          // for metering + caps
   }): Promise<{ data: unknown; usage: Usage }>;
+
+  // Phase 4.5 (RAG): embeddings route through the same gateway so they're
+  // provider-agnostic AND metered like completions (Rules 7, 8, 11).
+  embed(opts: {
+    input: string | string[];  // query text, or a batch of corpus docs
+    userId: string;            // for metering + caps
+  }): Promise<{ vectors: number[][]; usage: Usage }>;
 }
 ```
 
 - **Tiers, not model names**, in product code. A config map binds each tier to a
-  concrete model. **v1 model choice for each tier is the open decision to brainstorm**
-  (cheap/free candidates). Swapping = editing the config map.
+  concrete model. **v1 binding (settled 2026-07-28) — Google Gemini free tier:**
+  ```ts
+  // lib/ai/config.ts  (the ONLY file naming concrete models)
+  const MODELS = {
+    reasoning:      'gemini-flash',       // roadmap gen, topic detail (rare, high-value)
+    classification: 'gemini-flash-lite',  // recall grading, recall-card gen (frequent)
+    embedding:      'gemini-embedding',   // embed() for Phase 4.5 RAG
+  };
+  ```
+  Chosen so a solo portfolio project runs at ~$0. **Cost-routing insight:** the
+  pricier-per-token tier is on the *rare* call, the cheap tier on the *frequent* one
+  — cost tracks volume, not importance. Swapping to Claude (or A/B-ing) = editing this
+  one map; product code never changes.
 - **Schema validation + retry:** if `schema` is set, validate the response; on
   failure, retry once with a "return valid JSON only" nudge; on repeated failure,
   the caller falls back to a **seeded template** (app never hard-blocks).
 - **Prompt caching:** `system` scaffolding is marked cacheable where the provider
-  supports it.
-- **Metering:** every call writes an `ai_usage` row; caps are checked before dispatch.
+  supports it. On the v1 free tier the *dollar* saving is ~$0 (already free), so
+  caching is a **latency + token-efficiency** win here; the dollar saving becomes
+  real at paid-tier rates — which is how the cost readout below frames it.
+- **Metering + cost readout:** every `complete()` **and** `embed()` call writes an
+  `ai_usage` row (route, model, tokens, cost); caps are checked before dispatch. A
+  small internal **cost readout** aggregates these into $/roadmap, per-call token
+  usage, and cache hit-rate, and **projects** the paid-tier cost — the honest source
+  for the "cut inference cost ~X%" résumé bullet (a projection, not a free-tier
+  fiction).
 
 Seeded/mock content (the `weeksData`, `recallData`, `topicDetail` maps already in
 `Prep.dc.html`) becomes the **fallback + local-dev provider**, so the UI is fully
 functional before any real model is wired.
+
+## 5b. RAG — grounding topic resources against a curated corpus (Phase 4.5)
+
+**The problem it solves (a real failure mode, not a résumé item).** When
+topic-detail resources are generated purely from the model's memory, the model
+**hallucinates URLs and cites stale/dead links** — the #1 known failure of "ask an
+LLM for learning resources." That *is* a retrieval problem, and it's the only place
+in Prep that has one. RAG's job here is narrow and honest: **ground the ranked-
+resources list on real, vetted documents so no link is invented.** Mental-model and
+exercises stay pure generation — no retrieval problem there, so no retrieval.
+
+**Storage — pgvector in the same Postgres (no new datastore).**
+```sql
+create extension if not exists vector;
+
+resources (
+  id uuid primary key default gen_random_uuid(),
+  topic_area text not null,        -- coarse tag, e.g. 'react' | 'system-design'
+  title text not null,
+  url text not null,               -- a real, hand-vetted link
+  kind text not null,              -- 'doc' | 'article' | 'talk' | 'spec'
+  summary text not null,           -- what it covers (embedded)
+  embedding vector(1536)           -- dims match the chosen embedding model
+)
+-- approximate-NN index for similarity search:
+create index resources_embedding_idx on resources
+  using hnsw (embedding vector_cosine_ops);
+```
+This corpus is **global, not per-user** (shared vetted references), so it's the one
+table *without* a `user_id`/RLS predicate — reads are public-safe, writes are
+server-only via service role. (Call that out explicitly; it's the deliberate
+exception to Rule 5, and an interviewer will ask why this table has no RLS.)
+
+**The retrieval → grounding flow (`/api/topics/[id]/detail`):**
+1. Build a query string from the topic name + roadmap track.
+2. `gateway.embed({ input: query })` → query vector.
+3. `pgvector` cosine-similarity search over `resources` (top-k, filtered by
+   `topic_area`) → the retrieved docs.
+4. `gateway.complete({ tier: 'reasoning', … })` with the retrieved docs in context
+   and a schema that requires resources to be **selected/ranked/annotated from the
+   provided list** — the model may not introduce a URL that isn't in the retrieved
+   set.
+5. **Fallback (Rule 9):** if retrieval is empty (niche topic, thin corpus), fall
+   back to generated resources **flagged `unverified: true`** in the `detail` JSON so
+   the UI can mark them. RAG never hard-blocks.
+
+**Corpus seeding.** v1 corpus is a **hand-curated seed migration** of vetted
+MDN/spec/article/talk entries per weak-area — small, honest, defensible. Not
+scraped. Embeddings for the seed rows are computed once (a one-off script calling
+`gateway.embed()` on the batch) and written to the `embedding` column.
+
+**Why not LangChain/LangGraph for any of this** (asked-about, so decided here):
+the retrieval pipeline is *embed → pgvector query → grounded completion* — three
+steps we already own end-to-end. A framework would re-introduce exactly what Rule 7
+exists to keep out (a vendor SDK in product code) and hide the one interesting part.
+There is also **no agent loop** in Prep, so LangGraph has nothing to orchestrate.
+Kept the hand-rolled gateway; prepared the "why not" answer instead.
 
 ## 6. Auth & security
 

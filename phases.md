@@ -4,6 +4,11 @@
 > app is usable **before** any real AI model is chosen — the seeded content from
 > `Prep.dc.html` is the fallback provider. Companion: [PRD.md](./PRD.md) ·
 > [Architecture.md](./Architecture.md) · [Rules.md](./Rules.md).
+>
+> **QA gate (Rule 27):** every feature ends with a manual test-case doc in
+> [tests/](./tests/) (`phase-<n>-<feature>.md`) — happy + edge/negative/security cases.
+> The user runs them, reports Pass/Fail; fails are logged + fixed before the phase is
+> called demoable. A phase isn't "done" until its `tests/` doc is green.
 
 ---
 
@@ -53,16 +58,51 @@
 brainstorm lands.*
 - Build `lib/ai/gateway.ts`: tiered `complete()`, schema validation +
   retry-on-malformed, `ai_usage` metering, per-user daily caps, prompt caching.
-- **⟶ Open decision (brainstorm): pick the v1 model/provider per tier.** Wire the
-  chosen model(s) into the config map. Candidates to evaluate: a hosted free/cheap
-  tier, a local/open-weight model, or the Claude API — decide on cost, quality on
-  the roadmap-JSON task, and free-tier limits. The gateway makes this a config
-  change, not a rewrite.
+- **⟶ Model/provider decision (SETTLED — 2026-07-28):** v1 uses **Google Gemini's
+  free tier** across all bindings, chosen so a solo portfolio project runs at ~$0
+  while the gateway keeps the pick swappable:
+  - `reasoning` → **Gemini Flash** (roadmap gen + topic detail — the rare, high-value
+    calls; quality matters, volume is tiny under the 3-roadmap quota).
+  - `classification` → **Gemini Flash-Lite** (recall grading + recall-card gen — the
+    frequent, low-value calls; cheapest tier wins here).
+  - `embed()` → **Gemini's free embedding model** (Phase 4.5 RAG) — keeps the whole
+    stack on one free provider; its output dim sets the `vector(N)` column width.
+  - *The counterintuitive routing point (interview asset):* the pricier-per-token
+    tier sits on the **rare** call, the cheap tier on the **frequent** one — cost
+    follows call volume, not perceived importance. The provider-agnostic gateway
+    means A/B-ing Gemini vs Claude later is a config edit, not a rewrite.
 - Wire `/api/roadmaps/generate`, `/api/topics/[id]/detail`, `/api/recall/generate`
   to the gateway; seeded generator stays as the validated-failure fallback.
+- Topic-detail resources are **generated (unverified)** at this stage — RAG grounding
+  lands in 4.5. Flag them so the UI can mark them until the corpus exists.
 - Optional cheap-tier assist on free-text recall grading (self-grade stays default).
+- **Cost showcase (the résumé asset):** on top of the required metering + caps +
+  provider spend cap, build a small internal **cost readout** — $/roadmap, token
+  usage per call, cache hit-rate, before/after prompt-caching — computed from
+  `ai_usage`. On the free tier the *dollar* saving is ~$0, so caching is framed as a
+  **latency + token-efficiency** win at v1; the readout also **projects** the saving
+  at paid-tier rates, which is the honest form of the "cut inference cost ~X%" bullet.
 - **Demo:** real onboarding answers → a genuinely generated, schema-valid roadmap;
-  usage + cost visible in `ai_usage`; caps enforced.
+  usage + cost visible in `ai_usage`; caps enforced; cost readout shows $/roadmap
+  and cache hit-rate.
+
+## Phase 4.5 — RAG: ground topic resources on a curated corpus
+**Goal:** kill hallucinated/dead resource links by retrieving over vetted docs —
+the *only* genuine retrieval problem in Prep, so the only place RAG earns its keep.
+- Enable `pgvector`; add the **global `resources`** table (topic_area, title, url,
+  kind, summary, `embedding vector`) with an HNSW cosine index. This is the one
+  table *without* RLS (shared vetted refs, server-only writes) — the deliberate
+  exception to Rule 5, be ready to defend it.
+- Add `embed()` to the AI Gateway (provider-agnostic + metered like `complete()`).
+- **Seed** a hand-curated corpus (MDN/spec/article/talk entries per weak-area) via a
+  SQL migration; a one-off script computes embeddings through `gateway.embed()`.
+- Rewire `/api/topics/[id]/detail`: embed the topic query → `pgvector` top-k search
+  (filtered by `topic_area`) → reasoning-tier completion **grounded** on the
+  retrieved docs (schema forbids URLs not in the retrieved set). Empty retrieval →
+  fall back to generated `unverified` resources (Rule 9: RAG never hard-blocks).
+- **Demo:** open a topic → its resources are real, vetted links from the corpus;
+  a niche topic with no corpus hit gracefully shows generated resources marked
+  *unverified*. `ai_usage` shows the embedding call metered alongside the completion.
 
 ## Phase 5 — Print/export + polish
 **Goal:** shippable v1.
@@ -79,8 +119,12 @@ brainstorm lands.*
 ---
 
 ## Open questions to resolve during the phases
-- **[Phase 4] v1 model/provider per tier** — the AI brainstorm. Cheapest option
-  that clears the roadmap-JSON quality bar; verify free-tier limits + a spend cap.
+- ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28:** Gemini free
+  tier (Flash = reasoning, Flash-Lite = classification, Gemini embeddings = `embed()`);
+  provider-agnostic gateway keeps it swappable. See Phase 4 above + memory.md. Still
+  to confirm during the build: Gemini's exact free-tier rate limits, whether the free
+  tier's data-use terms are acceptable for this project, and the embedding model's
+  output dim (sets the `vector(N)` width in Phase 4.5).
 - Exact scheduling-interval tuning (validate the +1/+4/+14/+30 cadence vs pure SM-2).
 - Roadmap JSON schema final shape (fields the generator must return).
 - Onboarding question wording / weak-area taxonomy.

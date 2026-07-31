@@ -64,6 +64,12 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
   horizontal slices. We're currently at **Phase 0 (Foundation)**.
+- **QA gate after every feature (Rule 27).** When a feature is code-complete, write a
+  test-case doc in `tests/phase-<n>-<feature>.md` **before** calling it done —
+  QA-lead-grade coverage (happy path + edge/negative/security/boundary/concurrency),
+  each case as ID · area · precondition · steps · expected · priority. Then **pause and
+  prompt the user to run them manually** and report Pass/Fail. Log fails as bugs
+  (memory.md) and fix before the phase is marked demoable. Don't advance on untested code.
 - **Log as we go:** append non-obvious decisions and every real bug fixed to
   [memory.md](./memory.md) — that's the raw material for interview stories.
 - **Design fidelity:** tokens/spacing/components come from `Prep.dc.html` via
