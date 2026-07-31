@@ -63,7 +63,8 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
-  horizontal slices. We're currently at **Phase 0 (Foundation)**.
+  horizontal slices. **Phase 0 + Phase 1 are DONE** (Phase 1 tested + QA-gate closed,
+  2026-07-31); **next up is Phase 2 (spaced repetition)**.
 - **QA gate after every feature (Rule 27).** When a feature is code-complete, write a
   test-case doc in `tests/phase-<n>-<feature>.md` **before** calling it done —
   QA-lead-grade coverage (happy path + edge/negative/security/boundary/concurrency),

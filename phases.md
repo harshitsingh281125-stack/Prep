@@ -12,7 +12,7 @@
 
 ---
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation ✅ DONE (shipped to Vercel)
 **Goal:** empty app that deploys, authenticates, and has the design system.
 - Next.js (App Router) project, TypeScript, deploy to Vercel (hello world).
 - Supabase project; email/password + Google OAuth working end-to-end.
@@ -21,8 +21,11 @@
 - App shell: sidebar nav + header from the design, `/login` + a gated `/library` stub.
 - **Demo:** sign in with Google, see the empty Library shell in your theme.
 
-## Phase 1 — Roadmaps as data (no AI yet)
+## Phase 1 — Roadmaps as data (no AI yet) ✅ DONE (2026-07-31)
 **Goal:** the whole roadmap experience, driven by **seeded** content.
+**Status:** built + tested (Vitest 6/6, Playwright E2E 10/10, manual pass green — QA
+gate closed, Rule 27). Migration `0003_roadmaps.sql` applied. Branch
+`phase-1-roadmaps` / PR open. See [tests/phase-1-roadmaps.md](./tests/phase-1-roadmaps.md).
 - Schema + RLS for `profiles`, `roadmaps`, `weeks`, `topics`, `notes` (plain SQL migrations).
 - Seed the `weeksData` / `topicDetail` from `Prep.dc.html` as a static generator
   (this becomes the AI fallback later).
@@ -33,7 +36,7 @@
 - Quota enforced server-side.
 - **Demo:** onboard → generate a (seeded) roadmap → study a topic → mark it mastered.
 
-## Phase 2 — Spaced repetition (the real algorithm)
+## Phase 2 — Spaced repetition (the real algorithm) ⟵ NEXT
 **Goal:** the retention loop on a hand-written scheduler.
 - Schema + RLS for `recall_cards`, `recall_reviews`; the `(user_id, due_at)` index.
 - Implement the scheduling algorithm **by hand** (SM-2 or a justified variant):
