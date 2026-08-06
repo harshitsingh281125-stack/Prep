@@ -12,6 +12,48 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-08-06 · Phase 2 scheduling algorithm: the design's fixed ladder + an SM-2
+  ease modifier (the open question, now closed).** memory.md had flagged "pure SM-2 vs
+  the design's +1/+4/+14/+30 cadence" as undecided, with the deciding criterion being
+  *which one can be derived live, no notes* (Rule 14 + Rule 26). **Decision: keep the
+  ladder as the backbone, add a per-card ease factor that stretches/compresses it.**
+  Correct grade → `repetitions` climbs a rung and `interval = ladder[rung] × (ease/2.5)`;
+  past the top rung there's no ladder left so it switches to pure multiplicative growth
+  (`prevInterval × ease`), which is exactly SM-2's steady state. Ease moves +0.1 per hit,
+  −0.2 per miss, clamped 1.3–2.8. Wrong grade → **hard reset** to `repetitions = 0`,
+  `interval = 1` (Rule 17: "close enough" is a miss), but **the ease penalty persists
+  through the reset** — that's the card's memory of being hard for this user, so a
+  repeatedly-missed card re-climbs the same ladder more slowly.
+  **Why not pure SM-2:** (a) SM-2's intervals (1, 6, then ×ease → 15, 38…) do **not**
+  match the `+1d +4d +14d +30d` chips the Recall screen renders to the user — shipping
+  textbook SM-2 would have meant the UI lying about the cadence, or redesigning a screen
+  the design source already settled; (b) SM-2 grades on a 0–5 quality scale, but Prep
+  self-grades **binary** (Got it / Missed) by product design, which collapses SM-2's ease
+  formula to two cases anyway — so "pure SM-2" was never actually on the table in its real
+  form. **Why not the bare ladder:** it wastes the `ease`/`repetitions` columns
+  Architecture §4 already specced and isn't adaptive — every card of the same rung would
+  behave identically regardless of how hard it is for *you*. The variant keeps the
+  product's promise, keeps per-card adaptivity, and is honestly labelled a *justified
+  variant* rather than passed off as SM-2. Implemented in `lib/recall/scheduler.ts` as a
+  **pure function with injected `now`** (18 unit tests) — purity is what makes the
+  DST/UTC math (Rule 15) assertable at all. Date math is epoch-millisecond arithmetic,
+  not calendar-field `setDate`, so a "day" is always 24h and never drifts across a DST
+  boundary.
+
+- **2026-08-06 · Grading is a server route, not a client write — the one place Phase 1's
+  "owned rows go direct" rule-of-thumb does NOT apply.** Phase 1 settled that
+  user-owned rows (notes, mastery) are written straight from the browser under RLS, and
+  only quota/AI go through route handlers. Recall grading looks like the same shape (the
+  card is the user's own row) but goes through `/api/recall/[cardId]/grade` anyway.
+  **Why:** the row is the user's, but *the scheduling decision is not theirs to make* — a
+  client computing its own `due_at` could hand itself a 3650-day interval and quietly opt
+  out of the retention loop the product exists to enforce. RLS answers "whose row is
+  this?"; it cannot answer "is this the number the algorithm would have produced?" So the
+  split is sharper than "owned vs not-owned": **it's whether the value being written is
+  derived from a rule the product must guarantee.** Verified by test SC-07/RC-02 — posting
+  `{grade:'right', intervalDays:9999}` returns the algorithm's own value, ignoring the
+  injected field, because the handler only ever reads `grade` off the body.
+
 - **2026-07-30 · QA gate (Rule 27) + two-layer automated testing added.** After every
   feature I now write a manual test-case doc in `tests/phase-<n>-<feature>.md`
   (QA-lead-grade: happy + edge/negative/security/boundary/concurrency), the user runs
@@ -197,11 +239,13 @@
 
 - **[Phase 4] v1 model/provider per tier** — the AI brainstorm. Cheapest option
   that clears the roadmap-JSON quality bar; verify free-tier limits + a spend cap.
-- **Scheduling algorithm cadence** — the design uses a fixed **+1/+4/+14/+30**
-  cadence, which is *not* literally SM-2 (SM-2 derives intervals from an ease
-  factor). Decide: pure SM-2, or the fixed cadence with a justification. Matters
-  because "explain the algorithm from scratch, no notes" is on the interview
-  checklist — pick the one you can actually derive live.
+- ~~**Scheduling algorithm cadence**~~ — **SETTLED 2026-08-06:** the design's fixed
+  +1/+4/+14/+30 ladder as the backbone **plus** an SM-2 ease factor that stretches or
+  compresses each rung (past the top rung it becomes pure `prevInterval × ease`). A miss
+  hard-resets to +1d but the ease penalty persists. Chosen because textbook SM-2's
+  intervals contradict the cadence the UI advertises, and because Prep's binary
+  self-grade collapses SM-2's 0–5 ease formula anyway. See the settled-decisions entry
+  above + `lib/recall/scheduler.ts`.
 - Roadmap JSON schema final shape (fields the generator must return).
 - Onboarding question wording / weak-area taxonomy.
 - Product name (still "Prep", a placeholder).
@@ -253,6 +297,36 @@
   signup + profiles trigger + auth gate all verified against the live origin.
 
 ## Bugs hit + fixed (continued)
+
+- **2026-08-06 · Phase 2 E2E: 6 of 8 tests failed for TWO different reasons, neither of
+  them an app bug — and the app was verified correct before a single line was changed.**
+  Third time this pattern has appeared (see the two 2026-07-31 entries), so the discipline
+  is now reflexive: **reproduce outside the harness before touching app code.**
+  **(1) The "anonymous request returned 200" scare.** The anon-grading test asserted the
+  gate blocked it and got **200** — reading as a Rule-1 violation. Reproduced with `curl`
+  against a clean dev server on a free port: **307 → /login**. The app was fine. Root
+  cause was a *second*, distinct Playwright footgun beyond the one Phase 1 taught: I
+  correctly passed `storageState: {cookies:[],origins:[]}` (the Phase 1 lesson), but
+  **omitted `maxRedirects: 0`** — so Playwright happily **followed** the gate's 307 to
+  `/login`, which renders fine and returns 200. The "success" was the login page. Phase
+  1's `quota.spec.ts` already had `maxRedirects: 0` for exactly this reason; I'd copied
+  the storageState half of the pattern and not the redirect half. **Lesson: when asserting
+  that something is *blocked*, you must stop the client from following the block.** A
+  redirect-following HTTP client turns every gate into a 200.
+  **(2) The "no cards render" scare.** The remaining 5 failures all timed out waiting for
+  recall cards. Probed the DB directly: User A had **zero** cards. Probed the seed
+  function in isolation: it correctly produced 13. Probed the real route end-to-end via a
+  throwaway spec: **201, and 13 cards rendered.** So generation worked all along. Actual
+  cause: **two roadmaps left over from the 2026-07-31 Phase 1 run** put User A at the
+  3-roadmap cap, so every in-test `generateRoadmap()` after the first returned **403** —
+  and a 403 yields an empty queue, which surfaced as the *misleading* "no cards found"
+  instead of "quota full". **Fix (harness, not app):** added a `seedQueue()` helper that
+  asserts generation returned **201** and prints an explicit "quota full — leftover
+  roadmaps" message otherwise, so this failure can never again masquerade as a rendering
+  bug; then cleared the stale rows. **Lesson: shared-DB test suites need cleanup to be
+  verified, not assumed — and a fixture's failure must be loud and self-describing, or it
+  gets misdiagnosed as a failure of the thing under test.** All 18 E2E green after
+  (8 new recall + 10 Phase 1, no regressions).
 
 - **2026-07-31 · E2E "unauthenticated bypass" that looked like a security hole was a
   test-context bug — Playwright `newContext()` inherits ambient auth.** QT-06 (anon POST

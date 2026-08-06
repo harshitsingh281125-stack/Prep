@@ -73,7 +73,20 @@ const NAV: NavItem[] = [
   },
 ];
 
-export default function Sidebar({ user }: { user: SidebarUser }) {
+/* Due-count badge from the design's recallBadgeStyle — mono, pill, accent-soft. */
+const badgeStyle: CSSProperties = {
+  fontFamily: "'IBM Plex Mono',monospace",
+  fontSize: "11px",
+  minWidth: "18px",
+  textAlign: "center",
+  padding: "1px 6px",
+  borderRadius: "10px",
+  background: "var(--accent-soft)",
+  color: "var(--accent)",
+  fontWeight: 600,
+};
+
+export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; recallDue?: number }) {
   const pathname = usePathname();
 
   return (
@@ -123,6 +136,11 @@ export default function Sidebar({ user }: { user: SidebarUser }) {
             <Link key={item.href} href={item.href} style={navStyle(active)}>
               {item.icon}
               <span style={{ flex: 1, textAlign: "left" }}>{item.label}</span>
+              {item.href === "/recall" && recallDue > 0 && (
+                <span style={badgeStyle} data-testid="recall-due-badge">
+                  {recallDue}
+                </span>
+              )}
             </Link>
           );
         })}

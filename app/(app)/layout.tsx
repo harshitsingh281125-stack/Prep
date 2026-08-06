@@ -38,5 +38,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     initials: initialsFrom(profile?.display_name ?? "", email),
   };
 
-  return <AppShell user={sidebarUser}>{children}</AppShell>;
+  // Due-count badge on the Recall nav item (Phase 2). Same Rule-13 predicate as
+  // the Recall screen, but head-only + exact count — we need the number, not the
+  // rows, so this never fetches card bodies just to render a badge.
+  const { count: recallDue } = await supabase
+    .from("recall_cards")
+    .select("id", { count: "exact", head: true })
+    .lte("due_at", new Date().toISOString());
+
+  return (
+    <AppShell user={sidebarUser} recallDue={recallDue ?? 0}>
+      {children}
+    </AppShell>
+  );
 }

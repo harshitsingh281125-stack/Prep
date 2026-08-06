@@ -1,16 +1,67 @@
 import Header from "@/components/shell/Header";
 import ContentArea from "@/components/shell/ContentArea";
-import PhasePlaceholder from "@/components/shell/PhasePlaceholder";
+import RecallQueue, { type DueCard } from "@/components/recall/RecallQueue";
+import { createClient } from "@/lib/supabase/server";
+import { LADDER_DAYS, EASE_START, intervalLabel } from "@/lib/recall/scheduler";
 
-export default function RecallPage() {
+export const dynamic = "force-dynamic";
+
+/**
+ * Recall screen — today's due queue.
+ *
+ * The query below is THE one Rule 13 is about:
+ *
+ *   select ... from recall_cards
+ *   where user_id = auth.uid() and due_at <= now()
+ *   order by due_at asc;
+ *
+ * It is served by `recall_due_idx (user_id, due_at)`. user_id leads because it's
+ * an equality predicate (and the column RLS filters on), so Postgres seeks
+ * directly to this user's slice; due_at follows because it's the range filter AND
+ * the sort key, so the walk comes out already ordered — an index range scan, no
+ * sort node, no full table scan.
+ */
+export default async function RecallPage() {
+  const supabase = await createClient();
+
+  const nowIso = new Date().toISOString();
+  const { data: cards } = await supabase
+    .from("recall_cards")
+    .select("id, topic_label, question, ease, interval_days, repetitions")
+    .lte("due_at", nowIso)
+    .order("due_at", { ascending: true });
+
+  const rows = cards ?? [];
+
+  // The "+4d" chip shows the gap this card earns on a CORRECT grade — i.e. the
+  // next rung of the ladder, nudged by the card's own ease. This mirrors
+  // schedule()'s right-branch so the preview matches what the server will decide.
+  const due: DueCard[] = rows.map((c) => {
+    const reps = c.repetitions ?? 0;
+    const ease = Number(c.ease ?? EASE_START);
+    const projected =
+      reps >= LADDER_DAYS.length
+        ? Math.max(1, Math.round((c.interval_days || LADDER_DAYS[LADDER_DAYS.length - 1]) * ease))
+        : Math.max(1, Math.round(LADDER_DAYS[reps] * (ease / EASE_START)));
+
+    return {
+      id: c.id,
+      topicLabel: c.topic_label,
+      question: c.question,
+      projectedLabel: intervalLabel(projected),
+    };
+  });
+
+  const subtitle =
+    due.length === 0
+      ? "Nothing due right now"
+      : `${due.length} question${due.length === 1 ? "" : "s"} due today`;
+
   return (
     <>
-      <Header title="Recall" subtitle="Spaced-repetition review. Grade yourself honestly — a 'close enough' is a miss." />
+      <Header title="Recall" subtitle={subtitle} />
       <ContentArea maxWidth={740}>
-        <PhasePlaceholder
-          phase="Phase 2"
-          blurb="The recall queue runs on a hand-written spaced-repetition scheduler. It arrives once roadmaps and topics exist to build cards from."
-        />
+        <RecallQueue cards={due} />
       </ContentArea>
     </>
   );

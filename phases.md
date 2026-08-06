@@ -128,7 +128,8 @@ the *only* genuine retrieval problem in Prep, so the only place RAG earns its ke
   to confirm during the build: Gemini's exact free-tier rate limits, whether the free
   tier's data-use terms are acceptable for this project, and the embedding model's
   output dim (sets the `vector(N)` width in Phase 4.5).
-- Exact scheduling-interval tuning (validate the +1/+4/+14/+30 cadence vs pure SM-2).
+- ~~Exact scheduling-interval tuning (validate the +1/+4/+14/+30 cadence vs pure SM-2).~~
+  — **SETTLED 2026-08-06:** fixed ladder + SM-2 ease modifier. See Phase 2 + memory.md.
 - Roadmap JSON schema final shape (fields the generator must return).
 - Onboarding question wording / weak-area taxonomy.
 - Product name (still "Prep").
