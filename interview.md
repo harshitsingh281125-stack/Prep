@@ -91,9 +91,32 @@ usage metering.
   - _"One `for all` policy vs four?"_ → one `using (...) with check (...)` policy covers
     select/insert/update/delete; `using` gates reads/deletes, `with check` gates writes.
     Same predicate either way, so one policy is clearer than four identical ones.
-- _Why `(user_id, due_at)` composite index, in that column order:_ _(Phase 2)_
-- _How RLS and the index interact / query plan:_ _(Phase 2)_
-- _"Why not compute due-ness in app code?"_ _(Phase 2)_
+- **Why `(user_id, due_at)` composite index, in that column order [Phase 2 — built].**
+  The query is `where user_id = $me and due_at <= now() order by due_at asc`. A B-tree
+  is sorted by its **leading** column first, so putting the **equality** predicate
+  (`user_id`) first lets Postgres seek straight to the contiguous block of rows for one
+  user. Within that block the rows are already ordered by `due_at`, so the **range**
+  predicate (`due_at <= now()`) is a walk from the start of the block until it stops
+  matching — and because that walk emits rows in `due_at` order, the `ORDER BY` is
+  satisfied for free (no sort node).
+  - _"What if you flipped it to `(due_at, user_id)`?"_ → the index would be sorted by
+    date across **all users**, so serving one user means scanning every user's due rows
+    in that date range and filtering — the work grows with total traffic instead of with
+    my own queue. Rule of thumb: **equality columns before range columns**, and the
+    range column last so it can also serve the sort.
+- **How RLS and the index interact [Phase 2 — built].** RLS isn't a post-filter — the
+  policy predicate (`user_id = auth.uid()`) is injected into the query and planned like
+  any other `WHERE` clause. So the policy itself is what supplies the `user_id` equality
+  the index needs; RLS and the index reinforce each other rather than fighting. That's
+  another payoff of denormalising `user_id` onto every table: if the policy had to join
+  to a parent to find the owner, that join would run per row and the clean index seek
+  would be gone.
+- **"Why not compute due-ness in app code?" [Phase 2 — built].** Because it turns an
+  index seek into "fetch every card and filter in JS" — O(all my cards) transferred per
+  page view instead of O(cards actually due). Due-ness is a *predicate over stored data*,
+  which is exactly what a database is for; the app would also have to re-derive it on
+  every read and stay consistent about UTC. Keeping it in SQL means one definition of
+  "due", enforced at the only layer that sees all the rows.
 
 ### 4a-i. Seed generator + server-enforced quota [Phase 1 — built]
 - **What the seed generator is.** Onboarding answers → a full roadmap tree, by
@@ -170,12 +193,63 @@ the anon key (returns `[]`) vs a real user session (returns only that user's row
   Next's transitive copy, so an exact override was needed. Same class of constraint as the
   Next-15 pin.
 
-### 4b. Spaced-repetition algorithm [Phase 2]
-- _The algorithm, derived from scratch (ease, interval, repetitions):_ ...
-- _Why this cadence vs pure SM-2 (a decision we flagged as open):_ ...
-- _"Why implement it yourself instead of a library?"_ → resume-defensibility +
-  it's ~40 lines; a library would hide the one interesting part.
-- _What a "wrong" grade does and why reset-to-+1d:_ ...
+### 4b. Spaced-repetition algorithm [Phase 2 — built]
+
+- **The algorithm, derived from scratch.** Each card stores three numbers:
+  `repetitions` (how many times in a row it's been recalled correctly), `interval_days`
+  (the current gap), and `ease` (how easy *this* card is for *this* user — starts 2.5,
+  clamped 1.3–2.8).
+  - **Correct:** `repetitions` climbs one rung of a fixed ladder — **1d, 4d, 14d, 30d** —
+    and the interval is `ladder[rung] × (ease / 2.5)`, so ease stretches or compresses
+    the nominal gap. Past the top rung there's no ladder left, so it becomes pure
+    multiplicative growth: `previous_interval × ease` (that's SM-2's steady state).
+    Ease moves **+0.1**.
+  - **Wrong:** hard reset — `repetitions = 0`, `interval = 1` (see it again tomorrow) —
+    and ease takes a **−0.2** penalty that **persists through the reset**. That
+    persistence is the whole point: the card remembers it's hard for you, so it
+    re-climbs the same ladder with smaller multipliers than a fresh card would.
+  - `due_at = now + interval_days`, computed **server-side in UTC** with epoch-millisecond
+    arithmetic (not calendar `setDate`), so a "day" is always 24h and never drifts an
+    hour across a DST boundary.
+- **Why this cadence rather than pure SM-2** (the decision I flagged as open, then
+  closed). Two honest reasons, and I'd lead with the second:
+  1. The product's UI **advertises** `+1d +4d +14d +30d` to the user. Textbook SM-2
+     produces 1, 6, then ×ease → ~15, ~38 — so shipping literal SM-2 would have meant
+     either the UI lying about the cadence or redesigning a screen the design already
+     settled.
+  2. More fundamentally, **SM-2's ease formula is driven by a 0–5 quality grade**, and
+     Prep self-grades **binary** (Got it / Missed) on purpose — a 6-point self-assessment
+     is exactly the kind of false precision that makes people rate themselves generously.
+     With a binary grade, SM-2's ease update collapses to two cases anyway. So "pure
+     SM-2" wasn't really available in its meaningful form.
+  I kept the ladder the product promises, kept the per-card adaptivity that makes SM-2
+  actually work, and I describe it as **a justified variant — not as SM-2**. Claiming to
+  have "implemented SM-2" when the intervals aren't SM-2's would be the kind of thing an
+  interviewer catches in one follow-up question.
+- **"Why not the bare fixed ladder, then?"** → it isn't adaptive: every card at the same
+  rung behaves identically no matter how much *you personally* struggle with it, and it
+  wastes the `ease`/`repetitions` columns. The ease modifier is what makes two users'
+  schedules for the same question diverge based on their actual performance.
+- **"Why implement it yourself instead of a library?"** → it's ~40 lines of arithmetic
+  and it's the single most interesting piece of logic in the app; a dependency would hide
+  the one part worth talking about. It's also written as a **pure function with `now`
+  injected** — no clock reads, no DB — which is what makes the DST/UTC behaviour
+  assertable in unit tests at all (18 of them). Purity here was a testability decision,
+  not an aesthetic one.
+- **What a "wrong" grade does, and why reset all the way to +1d.** It drops a card from
+  a 78-day interval straight back to tomorrow. That's deliberate product honesty
+  (Rule 17): **"close enough" counts as a miss**, and there is no third button. If a
+  near-miss let you keep a 30-day interval, the schedule would quietly drift toward
+  "cards I *think* I know", which is precisely the failure mode spaced repetition exists
+  to prevent. The persisting ease penalty means repeated misses compound — the card keeps
+  coming back sooner than its rung suggests.
+- **Where the enforcement lives.** Grading goes through a **server route**
+  (`/api/recall/[cardId]/grade`), not a client write — even though the card is the user's
+  own row and RLS already protects it. RLS answers "may this user write this row?"; it
+  cannot answer "is this the number the algorithm would have produced?" A client
+  computing its own `due_at` could post a 10-year interval and opt out of the retention
+  loop entirely. So the split isn't owned-vs-not-owned; it's **whether the value is
+  derived from a rule the product must guarantee.**
 
 ### 4c. Structured output enforcement [Phase 4]
 - _How reliable JSON is guaranteed from an LLM:_ schema + validate + retry-on-malformed
@@ -270,6 +344,41 @@ Naming a limitation *first* reads as senior. Keep a real list:
 
 > Pull the best entry from [memory.md](./memory.md)'s bug log. Needs: symptom →
 > what I assumed → actual root cause → fix → what I changed to prevent the class.
+
+**"My test said the app was insecure. The test was wrong." [Phase 2] — the best
+*process* story, and the one to tell if they ask about testing or debugging.**
+- _Symptom:_ A new E2E case asserted that an **unauthenticated** POST to the grading
+  route is blocked. It came back **200 OK**. On its face: a Rule-1 violation, an
+  unauthenticated write path into the database.
+- _What I assumed — and deliberately did not act on:_ the obvious move is to "fix" the
+  auth gate. I'd been burned twice before by exactly this shape (two Phase 1 failures
+  that were also the harness lying), so the rule I now follow is: **when a test claims
+  the app is broken, reproduce it outside the test harness before touching app code.**
+- _How I diagnosed it:_ `curl`, no cookies, against a clean dev server on a free port →
+  **307 redirect to `/login`**. The gate was working perfectly. So the bug had to be in
+  the test.
+- _Actual root cause:_ two independent Playwright footguns stacked. (1) `request.newContext()`
+  **inherits the project's saved session**, so an "anonymous" request isn't anonymous
+  unless you pass an empty `storageState` — I'd handled that one. (2) The one I missed:
+  Playwright **follows redirects by default**, so it chased the 307 to `/login`, which
+  renders fine and returns **200**. The "success" I was seeing was the login page's HTML.
+  Fix: `maxRedirects: 0`, and assert on the 307 + its `Location` header.
+- _The second failure in the same run, different cause:_ five other tests timed out with
+  "no cards found". I probed the DB (zero cards), the seed function in isolation (correct,
+  13 cards), then the real route end-to-end (**201, 13 cards rendered**) — so generation
+  was fine. The actual cause was **two roadmaps left over from a previous run** pushing
+  the test user to the 3-roadmap quota, so every generate call returned **403**, and an
+  empty queue *looked* like a rendering bug.
+- _What I changed to prevent the class:_ (a) test fixtures now **assert their own
+  preconditions** — the seeding helper requires a `201` and fails with an explicit
+  "quota full — leftover roadmaps from a previous run" message, so that failure can never
+  again be misread as a failure of the thing under test; (b) both Playwright gotchas are
+  written into the spec's header comment and the bug log so the next person (me, in three
+  months) doesn't rediscover them.
+- _Why it's a good story:_ the headline isn't "I fixed a bug" — it's **"I correctly
+  concluded there was no bug."** It shows I can tell a broken system from a broken
+  measurement, which is the more valuable instinct, and that a misleading test failure is
+  itself a defect worth fixing (an unreliable signal is worse than no signal).
 
 **The SECURITY DEFINER RPC hole [Phase 0].**
 - _Symptom:_ Right after creating the `profiles` table with an auto-profile trigger,

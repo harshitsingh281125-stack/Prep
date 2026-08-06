@@ -487,6 +487,60 @@ the current route against fresh data, without losing client state or doing a har
 
 ---
 
+## 15. Dynamic segments in a **Route Handler** — `app/api/recall/[cardId]/grade/route.ts` *(added: Phase 2)*
+
+**What.** §9 covered `[id]` in a *page*; the same bracket-folder convention works in the
+API layer, and it composes with static segments. The file
+`app/api/recall/[cardId]/grade/route.ts` serves `POST /api/recall/<uuid>/grade` — a
+dynamic segment (`[cardId]`) sandwiched between two static ones (`recall`, `grade`).
+Params arrive the same way they do in a page, and in Next 15 they are **a Promise you
+must await**:
+
+```ts
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ cardId: string }> }
+) {
+  const { cardId } = await params;   // Next 15: params is async
+  const body = await request.json(); // and the body is a separate await
+}
+```
+
+**Why (as a React dev).** In an Express app you'd write `app.post('/api/recall/:cardId/grade')`
+and read `req.params.cardId`. Next replaces the *route string* with the **folder path**,
+so the URL shape is the directory tree — there is no route table to keep in sync, and no
+ordering problem where one route accidentally shadows another. The `request`/`params`
+split is the part worth noticing: `request` is a standard web `Request` (so `.json()` is
+the platform API, not an Express-specific `body-parser`), while `params` is Next's own,
+and in 15 it's async because a segment's value can depend on work the framework hasn't
+finished yet.
+
+**Where in Prep.**
+[app/api/recall/[cardId]/grade/route.ts](app/api/recall/%5BcardId%5D/grade/route.ts) —
+it awaits `params`, verifies the session, validates that `grade` is exactly
+`"right" | "wrong"`, runs the scheduler, and writes the card's next state. Note the
+deliberate asymmetry with Phase 1: notes/mastery are written *straight from the browser*
+under RLS, but grading is a **route handler**, because the browser must not get to choose
+its own `due_at`. RLS proves *whose* row it is; only the server can prove the *value* came
+from the algorithm.
+
+**Interview Q.** *"The recall card is the user's own row and RLS already protects it — so
+why route the write through a server handler instead of writing it from the client like
+you do for notes?"* → Because RLS answers "may this user write this row?", not "is this
+the number the algorithm would have produced?". A client computing its own interval could
+post a 10-year `due_at` and silently opt out of spaced repetition. So the rule isn't
+"owned vs not-owned" — it's **whether the value being written is derived from a rule the
+product has to guarantee**. Ownership → client + RLS; derived-and-enforced → server route.
+
+**Interview Q (follow-up).** *"Why is `params` awaited?"* → Next 15 made `params`,
+`searchParams`, `cookies()` and `headers()` async so the framework can start rendering
+before those values are resolved. It's a breaking change from 14, and forgetting the
+`await` gives you a Promise where you expected a string — which TypeScript catches only
+if you type `params` as a `Promise<…>`, which is why the signature above is written out
+explicitly.
+
+---
+
 ## Concepts still to come (added as we build)
 
 - **`generateMetadata` (dynamic titles per roadmap)** *(later — nice-to-have)*.
@@ -494,6 +548,8 @@ the current route against fresh data, without losing client state or doing a har
 - **`error.tsx` error boundaries** *(Phase 5)*.
 - **`revalidatePath` / `revalidateTag`** — we use `router.refresh()` now; tag-based
   revalidation may come with heavier caching later.
-- **The SM-2 scheduling write path** — a route handler applying the algorithm *(Phase 2)*.
+- ~~**The SM-2 scheduling write path** — a route handler applying the algorithm~~ —
+  **done in Phase 2, see §15** (dynamic segment in a route handler + why the write is
+  server-side rather than client+RLS).
 - **Streaming AI responses** *(Phase 4, maybe)*.
 - **`next/font` / `next/image` optimizations** *(Phase 5)*.

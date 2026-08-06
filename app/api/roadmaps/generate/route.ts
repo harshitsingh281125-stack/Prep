@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ONBOARDING_STEPS } from "@/lib/seed/catalog";
 import { generateSeedRoadmap } from "@/lib/seed/generate";
+import { seedCardsForTopic } from "@/lib/seed/recall";
 import type { OnboardingAnswers } from "@/lib/seed/types";
 
 // POST /api/roadmaps/generate
@@ -102,6 +103,19 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Phase 2: seed the recall queue alongside the tree. A roadmap whose timeline
+    // is longer than the catalog repeats blocks (see generateSeedRoadmap), so the
+    // same topic name can appear in several weeks — dedupe by name and bind each
+    // card to the FIRST topic row of that name, or the queue would carry copies.
+    const seededTopicNames = new Set<string>();
+    const cardRows: {
+      user_id: string;
+      topic_id: string;
+      roadmap_id: string;
+      topic_label: string;
+      question: string;
+    }[] = [];
+
     for (const week of seed.weeks) {
       const { data: weekRow, error: wErr } = await supabase
         .from("weeks")
@@ -140,6 +154,30 @@ export async function POST(request: Request) {
       }));
       const { error: nErr } = await supabase.from("notes").insert(noteRows);
       if (nErr) throw new Error(nErr.message);
+
+      // Collect this week's recall cards (first occurrence of each topic wins).
+      week.topics.forEach((t, i) => {
+        if (seededTopicNames.has(t.name)) return;
+        const cards = seedCardsForTopic(t.name);
+        if (cards.length === 0) return;
+        seededTopicNames.add(t.name);
+        for (const card of cards) {
+          cardRows.push({
+            user_id: user.id,
+            topic_id: insertedTopics[i].id,
+            roadmap_id: roadmap.id,
+            topic_label: card.topicLabel,
+            question: card.question,
+          });
+        }
+      });
+    }
+
+    // All cards start due now (interval 0, ease 2.5) — the column defaults handle
+    // the scheduler state, so the queue is immediately reviewable after onboarding.
+    if (cardRows.length > 0) {
+      const { error: cErr } = await supabase.from("recall_cards").insert(cardRows);
+      if (cErr) throw new Error(cErr.message);
     }
   } catch {
     // Roll back the whole tree (cascade removes any children already written).
