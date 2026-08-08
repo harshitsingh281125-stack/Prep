@@ -63,9 +63,11 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
-  horizontal slices. **Phases 0, 1 and 2 are DONE** (Phase 1 QA-gate closed 2026-07-31;
-  Phase 2 QA-gate closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass);
-  **next up is Phase 3 (honest progress dashboard)**.
+  horizontal slices. **Phases 0, 1, 2 and 3 are DONE** (Phase 1 QA-gate closed
+  2026-07-31; Phase 2 closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass;
+  Phase 3 closed 2026-08-08 — Vitest 77/77, E2E 31/31, full manual pass incl. the
+  Table-Editor elapsed-time cases); **next up is Phase 4 (AI Gateway + real
+  generation)** — the model pick is already settled (Gemini free tier, see phases.md).
 - **QA gate after every feature (Rule 27).** When a feature is code-complete, write a
   test-case doc in `tests/phase-<n>-<feature>.md` **before** calling it done —
   QA-lead-grade coverage (happy path + edge/negative/security/boundary/concurrency),

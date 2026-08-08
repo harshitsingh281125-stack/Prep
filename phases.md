@@ -54,11 +54,14 @@ See [tests/phase-2-recall.md](./tests/phase-2-recall.md).
 - **Demo:** grade a card → watch its next due date move per the algorithm; due
   count updates; "reviews due today" query verified against the index.
 
-## Phase 3 — Honest progress dashboard ⟵ IN QA
+## Phase 3 — Honest progress dashboard ✅ DONE (2026-08-08)
 **Goal:** the pace-vs-plan truth-teller.
-**Status:** code-complete; build green, Vitest **77/77**, Playwright E2E **31/31**.
-Migration `0005_study_sessions.sql` applied. **Awaiting the manual QA pass**
-([tests/phase-3-progress.md](./tests/phase-3-progress.md)) before it's marked DONE.
+**Status:** built + tested (Vitest **77/77**, Playwright E2E **31/31**, **full manual
+pass green** — all 48 cases, *including* the Table-Editor elapsed-time cases that
+simulate weeks passing (PC-01…PC-12), the two-account RLS cases (SEC-01/02), and the
+raw-SQL CHECK-constraint case (SEC-04) — QA gate closed, Rule 27). Migration
+`0005_study_sessions.sql` applied. Branch `phase-3-progress` / PR open.
+See [tests/phase-3-progress.md](./tests/phase-3-progress.md).
 - `study_sessions` (log hours, stored as **minutes** + a `1..1440` CHECK); aggregates
   for hours logged vs planned, pace, recall-accuracy trend, topics mastered — all in
   `lib/progress/compute.ts` as **pure functions with `now` injected**.
@@ -78,7 +81,7 @@ Migration `0005_study_sessions.sql` applied. **Awaiting the manual QA pass**
   the same change so the three screens can't disagree.
 - **Demo:** log hours, fall behind, see the banner + blockers reflect reality.
 
-## Phase 4 — AI Gateway + real generation
+## Phase 4 — AI Gateway + real generation ⟵ NEXT
 **Goal:** swap the seed for real AI behind the gateway — *this is where the model
 brainstorm lands.*
 - Build `lib/ai/gateway.ts`: tiered `complete()`, schema validation +

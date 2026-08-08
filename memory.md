@@ -447,6 +447,33 @@
 
 ## Verified subsystems (explain-cold ready)
 
+- **2026-08-08 · Phase 3 honest progress dashboard — QA gate closed, verified
+  end-to-end.** Vitest **77/77** (53 progress: week-elapsed flooring + cap, the pace
+  denominator, the 0.8 float boundary both sides, status precedence incl. the
+  fresh-vs-behind asymmetry, topic-attribution + the unattributed-hours consequence,
+  count-bucketed accuracy trend, blocker generation, and purity/no-mutation) ·
+  Playwright **31/31** (13 sessions: anon blocked, the full `minutes` boundary set
+  incl. accepted 1 & 1440, missing-roadmapId 400, unknown-roadmap 404, the
+  log→dashboard round-trip, form persistence across reload, unattributed hours,
+  cross-roadmap topic rejection, User-B 404, backdating ignored, fresh-roadmap
+  no-banner, accuracy empty state; 18 Phase 1–2, no regressions) · **full manual pass
+  green — all 48 cases**, and the awkward ones were genuinely run, not eyeballed: the
+  Supabase Table-Editor cases that move `created_at`/`logged_at` to simulate weeks
+  passing (PC-01…PC-12, incl. the 6-vs-7-day week boundary and the 576-vs-570-minute
+  float boundary), the two-account RLS cases (SEC-01/02), and the raw-SQL
+  CHECK-constraint bypass attempt (SEC-04, rejected by Postgres). **One real bug found
+  during the build** (the IEEE-754 threshold defect, logged above) — found by a unit
+  test, not by a user, because the aggregation is pure with `now` injected.
+  **What is now demoable:** log study time → hours/pace/bars move → edit `created_at`
+  back a few weeks → the BEHIND PACE banner, the derived status chip, and concrete
+  blockers all appear with real numbers → Library and Roadmap agree with Progress,
+  even with deliberately-poisoned `status`/`hours_logged` columns. **The explain-cold
+  claims this backs:** why pace is floored to whole weeks (a fresh roadmap can't be
+  behind on day one), why status is derived on read rather than stored (nothing
+  naturally writes it; it decays through time, not user action), why week attribution
+  is by topic rather than calendar (it's what makes the blocker literally true), and
+  why the session write is a server route (RLS can't answer "is this row coherent?").
+
 - **2026-08-08 · Phase 2 spaced repetition — QA gate closed, verified end-to-end.**
   Vitest **24/24** (18 scheduler: ladder walk, ease stretch/compress, hard reset, the
   persisting ease penalty, clamping, purity, epoch-ms DST safety) · Playwright **18/18**
