@@ -12,6 +12,53 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-08-08 · Phase 3 pace model: whole elapsed weeks since `created_at`, not a
+  continuous fraction and not `target_date`.** Three options were on the table for the
+  dashboard's denominator ("hours you should have logged by now"). **Decision: whole
+  weeks elapsed since `roadmaps.created_at`, capped at `weeks_count`, times the plan's
+  weekly rate.** **Why whole weeks:** the plan is *authored* in week-sized blocks with
+  week-sized kill criteria, so a person is "a week behind", never "0.42 weeks behind";
+  prorating by the hour would also declare you behind pace a few hours after creating a
+  roadmap, which is useless and demoralising. Flooring means a fresh roadmap expects
+  **0** hours and therefore *cannot* be behind on day one — which is the honest reading,
+  and is asserted by test PC-01/SE-12. **Why the cap:** past the final week the
+  expectation is the whole plan, not a number that keeps growing — an abandoned 5-week
+  roadmap is "19 hours short", not "500 hours short". **Why not `target_date`:** it is
+  `NULL` for every roadmap onboarding creates today, so it would have meant changing
+  onboarding *and* carrying a NULL-fallback path — scope for no extra honesty.
+  **Why not summing `weeks.hours` for elapsed weeks:** marginally more precise (it
+  respects a 14h week vs the 12h average) but needs the weeks tree loaded before the
+  banner can render, and the average is what the plan actually promised the user.
+
+- **2026-08-08 · Phase 3 week attribution: by topic, not by calendar.** A study session
+  fills a week's bar via `topic_id → topics.week_id`, **not** by where `logged_at` falls
+  relative to the roadmap's start. **Why:** the chart then answers *"what did you
+  study"* rather than *"when did you study"*, which is the only reading that makes the
+  "Week 3 hasn't started" blocker **literally true** instead of merely suggestive. Under
+  calendar attribution a week's bar could be full while that week's topics were
+  untouched — the chart would contradict the blockers list sitting directly beneath it.
+  **The accepted cost, made explicit rather than hidden:** sessions logged with no topic
+  are *unattributed* — they count toward total hours but fill no bar, so **the bars can
+  legitimately sum to less than the headline total**. Asserted deliberately (unit +
+  SE-08) so it can never later be misread as a bug.
+
+- **2026-08-08 · Phase 3 status is computed on read; `roadmaps.status` is now
+  vestigial.** `deriveStatus()` returns fresh/ontrack/behind/stalled/done from live
+  data at render time; the `roadmaps.status` **and** `roadmaps.hours_logged` columns are
+  no longer read by any screen. **Why:** a stored status is a lie the moment time passes
+  without a write — a roadmap would only decay into "stalled" *when you touched it*,
+  which is exactly backwards, and it would need a cron or a trigger to stay honest.
+  Computing on read cannot go stale and is a pure, unit-testable function. **The
+  consequence, handled not deferred:** Library and Roadmap were switched off both
+  columns in the same change, or they'd have kept rendering `'fresh'` / `0h` forever
+  while Progress showed the truth — two screens disagreeing about the same roadmap.
+  Test DS-04 pins this by setting `status='done'`/`hours_logged=999` in the Table Editor
+  and asserting all three screens ignore them. **Ordering inside `deriveStatus` is
+  load-bearing:** done → fresh → stalled → behind → ontrack, and the *fresh* branch is
+  the subtle one — "nothing logged" is only `fresh` while **nothing is expected yet**;
+  once hours were owed and none were logged it is `behind`, because an untouched
+  two-week-old roadmap is failing, not new.
+
 - **2026-08-06 · Phase 2 scheduling algorithm: the design's fixed ladder + an SM-2
   ease modifier (the open question, now closed).** memory.md had flagged "pure SM-2 vs
   the design's +1/+4/+14/+30 cadence" as undecided, with the deciding criterion being
@@ -298,6 +345,39 @@
 
 ## Bugs hit + fixed (continued)
 
+- **2026-08-08 · Phase 3: floating-point rounding told a user who hit their target
+  exactly that they were BEHIND PACE.** Symptom: the unit test asserting the 0.8
+  behind-pace boundary (`is 'ontrack' at exactly the boundary`) failed — 9.6 hours
+  logged against 12 hours expected returned `behind` instead of `ontrack`.
+  **Verified it was the app, not the test, before changing anything** (the Phase 1/2
+  discipline): reproduced in a bare `node -e` outside the harness — `12 * 0.8` evaluates
+  to **`9.600000000000001`** in IEEE-754 binary floating point, so `9.6 < 9.6000...1` is
+  `true` and the comparison classified the user as behind by **1.8e-15 hours**. Root
+  cause: `logged` was rounded to 1dp but the *threshold* it was compared against was
+  raw, so two values that should have been equal were compared at different precisions.
+  Fix: round the threshold to the same 1dp as the logged total before comparing
+  (`logged < round1(expected * BEHIND_RATIO)`) — **not** an epsilon nudge, which would
+  just relocate the arbitrary line somewhere less obvious. Two regression tests pin it:
+  the exact-boundary case, plus a "still behind a hair below" case proving the fix
+  didn't simply widen the threshold. **Why it matters beyond the arithmetic:** this is a
+  user-visible honesty bug in the one screen whose entire purpose is being honest — it
+  flips a green "On track" chip to a red "BEHIND PACE" banner for someone who did
+  exactly what they planned. **Lesson: when a threshold comparison decides something a
+  user reads as a verdict, round both sides to the same precision — a derived
+  comparison value is as much a floating-point hazard as the value being compared.**
+
+- **2026-08-08 · Phase 3 E2E: 2 failures, both my test's invalid CSS selector — not the
+  app.** Two `sessions.spec.ts` cases failed with `SyntaxError: 'option[value!=""]' is
+  not a valid selector`. There is **no `!=` attribute operator in CSS** (that's XPath /
+  jQuery), and Playwright *throws* on an invalid selector rather than quietly matching
+  nothing — which at least made it obviously a harness fault rather than a silent empty
+  result masquerading as "no topics rendered". Fixed with `:not([value=""])`. Fourth
+  time in this project that a red E2E was the test lying (see the three entries above),
+  and the first where the error message pointed straight at the harness. **Lesson: an
+  invalid selector that throws is a better failure than one that matches nothing** — the
+  Phase 2 "no cards render" scare was expensive precisely because the fixture failed
+  *quietly*.
+
 - **2026-08-06 · Phase 2 E2E: 6 of 8 tests failed for TWO different reasons, neither of
   them an app bug — and the app was verified correct before a single line was changed.**
   Third time this pattern has appeared (see the two 2026-07-31 entries), so the discipline
@@ -366,6 +446,33 @@
   code bug" interview story.
 
 ## Verified subsystems (explain-cold ready)
+
+- **2026-08-08 · Phase 3 honest progress dashboard — QA gate closed, verified
+  end-to-end.** Vitest **77/77** (53 progress: week-elapsed flooring + cap, the pace
+  denominator, the 0.8 float boundary both sides, status precedence incl. the
+  fresh-vs-behind asymmetry, topic-attribution + the unattributed-hours consequence,
+  count-bucketed accuracy trend, blocker generation, and purity/no-mutation) ·
+  Playwright **31/31** (13 sessions: anon blocked, the full `minutes` boundary set
+  incl. accepted 1 & 1440, missing-roadmapId 400, unknown-roadmap 404, the
+  log→dashboard round-trip, form persistence across reload, unattributed hours,
+  cross-roadmap topic rejection, User-B 404, backdating ignored, fresh-roadmap
+  no-banner, accuracy empty state; 18 Phase 1–2, no regressions) · **full manual pass
+  green — all 48 cases**, and the awkward ones were genuinely run, not eyeballed: the
+  Supabase Table-Editor cases that move `created_at`/`logged_at` to simulate weeks
+  passing (PC-01…PC-12, incl. the 6-vs-7-day week boundary and the 576-vs-570-minute
+  float boundary), the two-account RLS cases (SEC-01/02), and the raw-SQL
+  CHECK-constraint bypass attempt (SEC-04, rejected by Postgres). **One real bug found
+  during the build** (the IEEE-754 threshold defect, logged above) — found by a unit
+  test, not by a user, because the aggregation is pure with `now` injected.
+  **What is now demoable:** log study time → hours/pace/bars move → edit `created_at`
+  back a few weeks → the BEHIND PACE banner, the derived status chip, and concrete
+  blockers all appear with real numbers → Library and Roadmap agree with Progress,
+  even with deliberately-poisoned `status`/`hours_logged` columns. **The explain-cold
+  claims this backs:** why pace is floored to whole weeks (a fresh roadmap can't be
+  behind on day one), why status is derived on read rather than stored (nothing
+  naturally writes it; it decays through time, not user action), why week attribution
+  is by topic rather than calendar (it's what makes the blocker literally true), and
+  why the session write is a server route (RLS can't answer "is this row coherent?").
 
 - **2026-08-08 · Phase 2 spaced repetition — QA gate closed, verified end-to-end.**
   Vitest **24/24** (18 scheduler: ladder walk, ease stretch/compress, hard reset, the

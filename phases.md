@@ -54,16 +54,34 @@ See [tests/phase-2-recall.md](./tests/phase-2-recall.md).
 - **Demo:** grade a card → watch its next due date move per the algorithm; due
   count updates; "reviews due today" query verified against the index.
 
-## Phase 3 — Honest progress dashboard ⟵ NEXT
+## Phase 3 — Honest progress dashboard ✅ DONE (2026-08-08)
 **Goal:** the pace-vs-plan truth-teller.
-- `study_sessions` (log hours); aggregates for hours logged vs planned, pace,
-  recall-accuracy trend, topics mastered.
-- **Progress** screen: behind-pace banner (computed, not hard-coded), stat tiles,
-  hand-rolled SVG hours-bar + accuracy-line charts, blockers list.
-- Roadmap `status` (fresh/ontrack/behind/stalled) derived from real data.
+**Status:** built + tested (Vitest **77/77**, Playwright E2E **31/31**, **full manual
+pass green** — all 48 cases, *including* the Table-Editor elapsed-time cases that
+simulate weeks passing (PC-01…PC-12), the two-account RLS cases (SEC-01/02), and the
+raw-SQL CHECK-constraint case (SEC-04) — QA gate closed, Rule 27). Migration
+`0005_study_sessions.sql` applied. Branch `phase-3-progress` / PR open.
+See [tests/phase-3-progress.md](./tests/phase-3-progress.md).
+- `study_sessions` (log hours, stored as **minutes** + a `1..1440` CHECK); aggregates
+  for hours logged vs planned, pace, recall-accuracy trend, topics mastered — all in
+  `lib/progress/compute.ts` as **pure functions with `now` injected**.
+- **Pace basis (settled 2026-08-08):** whole **elapsed weeks since `created_at`**,
+  capped at `weeks_count`, × the plan's weekly rate. Floored deliberately so a fresh
+  roadmap expects 0h and *cannot* be behind on day one. Not `target_date` (NULL on
+  every roadmap onboarding creates today).
+- **Progress** screen: behind-pace/stalled banner (computed, not hard-coded), 4 stat
+  tiles, hand-rolled SVG hours-bar + accuracy-line charts (Rule 22), blockers list
+  built from real signals, log-hours form, and an empty state.
+- **Week attribution (settled):** a session fills a week's bar via its **topic**
+  (`topic_id → topics.week_id`), not by calendar position — so "Week 3 hasn't started"
+  is literally true. Unattributed sessions count toward hours but fill no bar.
+- Roadmap `status` (fresh/ontrack/behind/stalled/done) **derived on read** by
+  `deriveStatus()`; `roadmaps.status` and `roadmaps.hours_logged` are now **vestigial**
+  (never written, never read). Library + Roadmap switched onto the derived values in
+  the same change so the three screens can't disagree.
 - **Demo:** log hours, fall behind, see the banner + blockers reflect reality.
 
-## Phase 4 — AI Gateway + real generation
+## Phase 4 — AI Gateway + real generation ⟵ NEXT
 **Goal:** swap the seed for real AI behind the gateway — *this is where the model
 brainstorm lands.*
 - Build `lib/ai/gateway.ts`: tiered `complete()`, schema validation +
