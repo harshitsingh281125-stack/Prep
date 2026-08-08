@@ -63,8 +63,9 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
-  horizontal slices. **Phase 0 + Phase 1 are DONE** (Phase 1 tested + QA-gate closed,
-  2026-07-31); **next up is Phase 2 (spaced repetition)**.
+  horizontal slices. **Phases 0, 1 and 2 are DONE** (Phase 1 QA-gate closed 2026-07-31;
+  Phase 2 QA-gate closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass);
+  **next up is Phase 3 (honest progress dashboard)**.
 - **QA gate after every feature (Rule 27).** When a feature is code-complete, write a
   test-case doc in `tests/phase-<n>-<feature>.md` **before** calling it done —
   QA-lead-grade coverage (happy path + edge/negative/security/boundary/concurrency),

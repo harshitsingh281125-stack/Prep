@@ -367,6 +367,22 @@
 
 ## Verified subsystems (explain-cold ready)
 
+- **2026-08-08 · Phase 2 spaced repetition — QA gate closed, verified end-to-end.**
+  Vitest **24/24** (18 scheduler: ladder walk, ease stretch/compress, hard reset, the
+  persisting ease penalty, clamping, purity, epoch-ms DST safety) · Playwright **18/18**
+  (8 recall: anon blocked, malformed grade rejected, unknown-card 404, grade round-trip,
+  miss reset, session accuracy, RLS cross-user ×2; 10 Phase 1, no regressions) · **full
+  manual pass green**, including the Supabase Table-Editor cases that walk one card up
+  the ladder across simulated days (SC-04) and the miss-from-deep-interval case (SC-02),
+  which automation can't reach without a movable clock. **No bugs found in the manual
+  pass** — the two failures during the build were both harness bugs (logged above), not
+  app defects. **What is now demoable:** onboard → a seeded recall queue appears with a
+  due-count badge → grade a card → the card leaves today's queue and its `due_at` moves
+  by the algorithm's own number → grade everything → "Queue clear". **The explain-cold
+  claims this backs:** the ladder+ease algorithm derived from scratch (Rule 14), why
+  `(user_id, due_at)` in that column order beats a scan (Rule 13), and why the grade
+  write is a server route while notes/mastery are client+RLS.
+
 - **2026-07-28 · Google OAuth (Stage C) — verified end-to-end.**
   Browser Supabase client `signInWithOAuth({provider:'google', redirectTo:
   '/auth/callback'})` → Google consent → `/auth/callback` route handler

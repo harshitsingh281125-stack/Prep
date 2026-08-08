@@ -36,18 +36,25 @@ gate closed, Rule 27). Migration `0003_roadmaps.sql` applied. Branch
 - Quota enforced server-side.
 - **Demo:** onboard → generate a (seeded) roadmap → study a topic → mark it mastered.
 
-## Phase 2 — Spaced repetition (the real algorithm) ⟵ NEXT
+## Phase 2 — Spaced repetition (the real algorithm) ✅ DONE (2026-08-08)
 **Goal:** the retention loop on a hand-written scheduler.
+**Status:** built + tested (Vitest 24/24, Playwright E2E 18/18, full manual pass green
+incl. the Table-Editor multi-interval cases — QA gate closed, Rule 27). Migration
+`0004_recall.sql` applied. Branch `phase-2-recall` / PR open.
+See [tests/phase-2-recall.md](./tests/phase-2-recall.md).
 - Schema + RLS for `recall_cards`, `recall_reviews`; the `(user_id, due_at)` index.
-- Implement the scheduling algorithm **by hand** (SM-2 or a justified variant):
-  ease, interval, repetitions; "right" advances, "wrong" resets to +1d.
+- Scheduling algorithm implemented **by hand** — the design's fixed **+1/+4/+14/+30**
+  ladder as the backbone **plus an SM-2 ease modifier** that stretches/compresses each
+  rung (past the top rung: `prevInterval × ease`). "Right" climbs a rung; "wrong" hard-
+  resets to +1d with a **persisting** ease penalty (Rule 17). A *justified variant*,
+  explicitly **not** SM-2 — see Architecture §4b + memory.md for the why.
 - **Recall** screen: due cards, self-grade Got it / Missed, session accuracy,
   "queue clear" state, due-count badge on the nav.
 - Cards seeded per topic for now (from `recallData`).
 - **Demo:** grade a card → watch its next due date move per the algorithm; due
   count updates; "reviews due today" query verified against the index.
 
-## Phase 3 — Honest progress dashboard
+## Phase 3 — Honest progress dashboard ⟵ NEXT
 **Goal:** the pace-vs-plan truth-teller.
 - `study_sessions` (log hours); aggregates for hours logged vs planned, pace,
   recall-accuracy trend, topics mastered.
