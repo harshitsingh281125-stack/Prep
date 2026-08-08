@@ -80,19 +80,49 @@ Load context first — **read these before writing any code**:
      React-dev / Where in Prep / Interview Q), grounded in the real file.
    - `interview.md` — fill the phase's subsystem deep-dive(s) + any new "why not X" /
      bug story — **only** with answers explainable cold.
-   - `memory.md` — every non-obvious decision + every real bug fixed (dated).
+   - `memory.md` — every non-obvious decision + every real bug fixed (dated), plus a
+     "Verified subsystems" entry once the QA gate closes.
+   - `Architecture.md` — **if the phase touched schema, routes, or a subsystem it
+     describes.** Correct the §4 schema block to match the migration *as applied*
+     (columns, FK actions, constraints), the §3 route table, and any prose that a
+     design decision has now falsified. Add a short subsection for the new subsystem.
+   - `tests/README.md` — new suites, updated counts, and any harness gotcha this phase
+     uncovered (the next spec author needs it before they write a spec, not after).
+   - `phases.md` / `PRD.md` — settle any open question this phase closed, and restate
+     bullets that named a pre-decision placeholder rather than what actually shipped.
 
 8. **Commit + PR (only after build green + automated tests green; ask before the
    manual pass is in if the user wants to commit early).**
    - Branch first (never commit straight to `main`): `phase-<$1>-<name>`.
    - Verify **no secrets/artifacts staged** (`.env*`, `.auth/`, `.next/`,
      `node_modules`, `test-results`). Confirm gitignore covers them.
-   - Commit with a detailed message ending in the `Co-Authored-By: Claude Opus 4.8`
-     trailer. Push. `gh` isn't installed → give the user the PR "compare" URL + a
-     ready-to-paste PR body (ending with the Claude Code generated-with line).
+   - Commit with a detailed message explaining the what and the **why**. Push.
+     `gh` isn't installed → give the user the PR "compare" URL + a ready-to-paste
+     PR body.
 
 9. **Mark the phase done.** Update `phases.md` (✅ DONE + status line with test
    results) and the `CLAUDE.md` current-phase pointer once the QA gate is closed.
+
+10. **Final doc sweep — do this as an explicit last pass, not from memory.** Step 7 is
+    written *during* the build, so it reliably misses docs the phase falsified from a
+    distance. Before declaring the phase finished, actually grep for staleness rather
+    than trusting recall:
+    - **Hunt contradictions.** Grep the repo for terms the phase changed the meaning of
+      and read every hit. If a decision landed as "we did X, deliberately not Y", search
+      `Y` across `*.md` — every surviving mention must be *explaining the rejection*, not
+      still claiming Y. (Phase 2: `Architecture.md` said "apply SM-2" in three places
+      after we'd chosen a variant *because* SM-2 was the wrong claim to make — the
+      architecture doc was contradicting `interview.md`.)
+    - **Re-read the schema block against the migration**, field by field. Docs drift from
+      the SQL silently, and `Architecture.md` is the doc that gets read as truth.
+    - **Check the phase-N-only docs** (`tests/README.md`, per-phase matrices) still
+      describe the current suite, not the previous phase's.
+    - **State honestly what was verified.** When recording a manual pass, if cases needing
+      awkward setup (DB edits, a second account, two tabs) were skipped or eyeballed, say
+      so — ask the user which cases actually ran rather than writing "manual pass green"
+      over an assumption. A status line is read back months later as fact.
+    - Then confirm `npm run build` + both suites are still green after the doc edits, and
+      commit the sweep separately so the correction is visible in history.
 
 ## Guardrails
 - **Manual/console steps** (Supabase migrations, dashboard toggles, creating test
