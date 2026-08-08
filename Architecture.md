@@ -34,10 +34,15 @@
 └───────────────────┘             └──────────────────────────┘
 ```
 
-**Rule of thumb for where logic runs:**
-- **Client + RLS** for plain reads/writes a user owns (roadmaps, notes, grading a card).
-- **Server route** for anything that must be trusted: AI calls, quota checks,
-  usage metering, and any write whose integrity can't be guaranteed client-side.
+**Rule of thumb for where logic runs** (refined by Phases 2–3 — it is *not*
+owned-vs-not-owned):
+- **Client + RLS** for plain reads/writes a user owns where the *value* carries no
+  product rule (notes autosave, the mastery toggle).
+- **Server route** whenever the value being written is **derived from a rule the
+  product must guarantee** — AI calls, quota checks, usage metering, the recall
+  scheduler's `due_at` (§4b), and study-session integrity (§4c). RLS answers
+  "whose row is this?"; it cannot answer "is this the number the algorithm would
+  have produced?" or "is this row internally coherent?"
 
 ## 2. Why this stack
 
@@ -72,7 +77,7 @@
 | `/api/topics/[id]/detail` | POST | generate mental model + exercises; **RAG-ground** ranked resources on the curated corpus (Phase 4.5) | ✅ reasoning tier + `embed()` |
 | `/api/recall/[cardId]/grade` | POST | run the scheduler, write next due date + review log | ⚪ optional cheap-tier assist |
 | `/api/recall/generate` | POST | derive recall cards for a topic | ✅ classification tier |
-| `/api/sessions` | POST | log study hours | ❌ |
+| `/api/sessions` | POST | log study hours (validates minutes + roadmap/topic ownership) | ❌ |
 | `/api/usage` | GET | current user's AI usage vs cap | ❌ |
 
 Reads that don't need privilege (list my roadmaps, my due cards, my notes) go
@@ -101,11 +106,15 @@ roadmaps (
   answers jsonb not null,         -- raw onboarding answers (audit + regen)
   weeks_count int not null,
   hours_planned int not null,
-  hours_logged int default 0,
-  status text default 'fresh',    -- fresh|ontrack|behind|stalled|done
+  hours_logged int default 0,     -- VESTIGIAL since Phase 3 — never written, never read
+  status text default 'fresh',    -- VESTIGIAL since Phase 3 — see §4c, status is derived on read
   target_date date,
-  created_at timestamptz default now()
+  created_at timestamptz default now()  -- Phase 3 measures pace from this
 )
+-- NOTE (Phase 3): hours_logged and status are dead columns. Hours come from
+-- summing study_sessions; status comes from deriveStatus() at render time. They
+-- are left in place rather than dropped so the migration history stays additive,
+-- but nothing reads them — see §4c for why a STORED status is unsafe.
 
 weeks (
   id uuid primary key default gen_random_uuid(),
@@ -165,14 +174,24 @@ recall_reviews (
 -- append-only: a new grade INSERTS a row, never updates one, so accuracy history
 -- survives even though the card's own state is overwritten each review.
 
+-- Phase 3. Append-only log of hours actually spent; the Progress dashboard is
+-- derived entirely from these rows (+ recall_reviews + topics).
 study_sessions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  roadmap_id uuid,
-  topic_id uuid,
-  minutes int not null,
-  logged_at timestamptz default now()
+  user_id uuid not null references auth.users on delete cascade,
+  roadmap_id uuid not null references roadmaps on delete cascade,
+  topic_id uuid references topics on delete set null,  -- set null: keep the hours if the topic goes
+  minutes int not null check (minutes > 0 and minutes <= 1440),  -- stored as minutes, not hours
+  note text,
+  logged_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
 )
+-- minutes, not hours: "90 minutes" isn't an int hour, and float hours accumulate
+-- rounding drift once summed. Integer minutes sum exactly; the UI divides by 60
+-- at the last moment. The CHECK is the DB-level backstop under the route's own
+-- validation — bounded at both layers deliberately.
+create index study_sessions_roadmap_idx on study_sessions (roadmap_id, logged_at desc);
+create index study_sessions_user_idx    on study_sessions (user_id, logged_at desc);
 
 ai_usage (
   id uuid primary key default gen_random_uuid(),
@@ -242,6 +261,61 @@ repetition entirely. The handler therefore reads **only** `grade` off the body a
 rejects anything that isn't exactly `right`/`wrong`. Generalised rule-of-thumb
 refinement to §1: it isn't owned-vs-not-owned, it's **whether the value being written
 is derived from a rule the product must guarantee.**
+
+### 4c. The progress aggregation (Phase 3) — derived, never stored
+
+Implemented as pure functions in `lib/progress/compute.ts`, with `now` injected —
+the same discipline as the scheduler, and the reason the week-boundary and
+threshold behaviour is unit-testable at all (53 tests).
+
+```
+perWeek        = hours_planned / weeks_count
+weeksElapsed   = min(floor((now - created_at) / 7d), weeks_count)   // whole weeks, capped
+expectedByNow  = weeksElapsed × perWeek
+logged         = sum(study_sessions.minutes) / 60                   // sum ints, convert last
+observedPace   = logged / weeksElapsed                              // null before week 1
+
+status:  done    ← every topic mastered (Rule 16)
+         fresh   ← nothing logged AND nothing expected yet
+         stalled ← started, then silent ≥ 14 days
+         behind  ← logged < round1(expectedByNow × 0.8)
+         ontrack ← otherwise
+```
+
+**Why whole elapsed weeks, not a continuous fraction.** The plan is authored in
+week-sized blocks with week-sized kill criteria, so a person is "a week behind",
+never "0.42 weeks behind". Flooring also means a brand-new roadmap expects **0**
+hours and therefore *cannot* be behind on day one — prorating by the hour would
+put a red BEHIND PACE banner in front of someone three hours after they made a
+plan. The cap matters for the opposite end: past the final week the expectation
+is the whole plan, so an abandoned roadmap is "19 hours short", not "500 short".
+
+**Why status is computed on read and `roadmaps.status` is dead.** RLS-style
+storage would need something to *write* the status, and nothing naturally does —
+a roadmap decays into "stalled" through the passage of time, not through a user
+action. A stored value would therefore only update when you touched the roadmap,
+i.e. it would go stale exactly when it mattered and would need a cron to stay
+honest. Deriving on read cannot go stale. The cost is that Library, Roadmap and
+Progress must all call the same function — which they do, and DS-04 pins it.
+
+**Week attribution is by topic, not by calendar.** A session fills a week's bar
+via `topic_id → topics.week_id`, not by where `logged_at` falls. That makes the
+chart answer *"what did you study"*, which is what lets a "Week 3 hasn't started"
+blocker be literally true rather than merely suggestive — under calendar
+attribution a week's bar could be full while that week's topics were untouched,
+so the chart would contradict the blockers list directly beneath it. The accepted
+cost: unattributed sessions (no topic, or a deleted one) count toward total hours
+but fill no bar, so **the bars can legitimately sum to less than the headline.**
+
+**Why the session write is a server route.** Same reasoning as grading (§4b): RLS
+answers *"may this user write this row?"* but not *"is this a coherent row?"* A
+direct client write could log minutes against a topic belonging to a **different
+roadmap**, silently corrupting the per-week bars the whole screen derives from.
+`/api/sessions` re-derives ownership of both the roadmap and the topic, validates
+`minutes` as an integer in `[1, 1440]`, and lets the DB's CHECK constraint
+backstop it. `logged_at` is always the server's `now()` — a client-supplied
+timestamp is ignored, so nobody can backdate a history that makes them look
+on-pace (SE-11).
 
 ### Daily quota (server-enforced)
 ```sql

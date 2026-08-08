@@ -35,6 +35,9 @@ positions AI as *a subsystem with engineering around it*, not a wrapper.
   optimized the "reviews due today" path with a composite `(user_id, due_at)` index.
 - Implemented a spaced-repetition algorithm from scratch (not a library) driving
   a +1/+4/+14/+30-day review cadence with honest self-grading.
+- Built a pace-vs-plan progress dashboard whose every figure is derived from logged
+  sessions and an append-only review log at render time — no stored/denormalised status
+  that can go stale — with hand-rolled SVG charts (no charting dependency).
 - _[Phase 4] Ran v1 on a free-tier model (Gemini) behind a provider-agnostic gateway
   with tier-based routing, prompt caching, and per-user caps; measured token usage +
   cache hit-rate and **projected ~X% inference-cost reduction at paid-tier rates** —
@@ -42,9 +45,11 @@ positions AI as *a subsystem with engineering around it*, not a wrapper.
   X% is the projected saving if/when it moves to paid.)_
 - Enforced hard per-user daily AI caps and auth-gated inference routes to keep a
   usage-metered bill predictable.
-- Built a layered test suite — Vitest for pure logic, Playwright E2E for the
-  security/RLS/quota paths (server-enforced quota, cross-user isolation, auth gating) —
-  and used it to catch two false-alarm regressions that were actually test-harness bugs.
+- Built a layered test suite — Vitest for pure logic (77), Playwright E2E for the
+  security/RLS/quota paths (31: server-enforced quota, cross-user isolation, auth
+  gating, session integrity) — which caught a floating-point threshold bug that
+  mislabelled on-track users as behind, and three false-alarm regressions that were
+  actually test-harness bugs.
 
 ## 3. Architecture story (the spine of the conversation)
 
@@ -251,6 +256,68 @@ the anon key (returns `[]`) vs a real user session (returns only that user's row
   loop entirely. So the split isn't owned-vs-not-owned; it's **whether the value is
   derived from a rule the product must guarantee.**
 
+### 4b-i. The honest progress dashboard [Phase 3 — built]
+
+**The one-liner:** every number on the Progress screen is derived from rows at render
+time — hours from `study_sessions`, accuracy from the append-only `recall_reviews` log,
+status from a pure function — so the dashboard structurally *cannot* flatter you.
+
+- **The design decision worth leading with: pace is measured in whole elapsed weeks,
+  not a continuous fraction.** `expectedHoursByNow = min(floor((now − created_at)/7d),
+  weeks_count) × (hours_planned / weeks_count)`. Two consequences fall out of that
+  `floor`, and both are product decisions rather than arithmetic conveniences. **(a) A
+  brand-new roadmap expects zero hours, so it cannot be "behind" on day one.** Prorating
+  by the hour would put a red BEHIND PACE banner in front of someone three hours after
+  they made a plan — technically defensible, useless in practice, and it would train
+  people to ignore the banner. **(b) The `min` cap** means an abandoned 5-week plan is
+  "19 hours short", not "500 hours short" — the number stays actionable instead of
+  growing without bound. The unit is weeks because the *plan* is authored in weeks, with
+  week-sized kill criteria: a person is "a week behind", never "0.42 weeks behind".
+- **Status is computed on read; the `roadmaps.status` column is deliberately dead.**
+  This is the part interviewers push on, because a status column is the obvious design.
+  The problem: nothing naturally *writes* it. A roadmap decays into "stalled" through
+  **the passage of time**, not through a user action — so a stored status would only
+  refresh when you touched the roadmap, i.e. it would be stale exactly when it mattered,
+  and keeping it honest would need a cron job. Deriving at render time can't go stale
+  and is a pure, unit-testable function. The cost I paid explicitly: Library, Roadmap and
+  Progress all have to call the same function, so I switched all three in the same change
+  rather than leaving two screens rendering `'fresh'` forever while Progress told the
+  truth. A test sets `status='done'`/`hours_logged=999` directly in the DB and asserts
+  every screen ignores them.
+- **The ordering inside `deriveStatus` is load-bearing:** done → fresh → stalled →
+  behind → ontrack. The subtle branch is *fresh*: "nothing logged" is only `fresh` while
+  **nothing is expected yet**. Once hours were owed and none were logged it's `behind` —
+  an untouched two-week-old roadmap is failing, not new. Getting that backwards would
+  make the most common failure mode invisible, which is the exact vanity-metric trap
+  Rule 19 exists to prevent.
+- **Week attribution is by topic, not by calendar** — a session fills a week's bar via
+  `topic_id → topics.week_id`, not by when it was logged. That's what makes a "Week 3
+  hasn't started" blocker *literally* true rather than merely suggestive: under calendar
+  attribution a week's bar could be full while that week's topics were untouched, so the
+  chart would contradict the blockers list sitting directly beneath it. **The cost I
+  accept and surface rather than hide:** unattributed sessions count toward total hours
+  but fill no bar, so the bars can legitimately sum to less than the headline number. I
+  assert that in a test so it can't later be misread as a bug.
+- **Where the enforcement lives.** Logging goes through `/api/sessions`, not a client
+  write, for the §4b reason extended one step: RLS answers "may this user write this
+  row?" but not "**is this row coherent?**" A direct client write could attach minutes to
+  a topic from a *different* roadmap — the user's own topic, so RLS is satisfied — and
+  silently corrupt the per-week bars the entire screen derives from. The route re-derives
+  ownership of both the roadmap *and* the topic, validates `minutes` as an integer in
+  `[1,1440]`, and a CHECK constraint backstops it at the column. `logged_at` is always
+  the server's `now()`, so a client can't backdate a history that makes them look
+  on-pace.
+- **Charts are hand-rolled SVG** (Rule 22) — the accuracy trend is a `<polyline>` plus
+  gridlines and about twenty lines of coordinate math; the hours bars are styled divs.
+  No charting dependency for two rectangles and a line. The y-axis is clipped to 40–100%
+  deliberately: a 0-based axis squashes real recall accuracy into the top third and hides
+  exactly the movement the chart exists to show.
+- **The trend is bucketed by review *count*, not by calendar day.** Study is bursty, so
+  day-buckets are mostly empty gaps; "your last N reviews" is a dense series that
+  actually shows whether accuracy is climbing. Below one full bucket the UI shows an
+  empty state instead of a misleading two-point "trend", and a <5-point wobble is
+  labelled **flat** rather than dressed up as progress.
+
 ### 4c. Structured output enforcement [Phase 4]
 - _How reliable JSON is guaranteed from an LLM:_ schema + validate + retry-on-malformed
   + seeded-template fallback so AI never hard-blocks a flow.
@@ -320,6 +387,9 @@ the anon key (returns `[]`) vs a real user session (returns only that user's row
 | Why not multi-provider LLM shopping? | Marginal savings at MVP scale vs. the overhead of a multi-provider layer. "Cost-aware tier routing + caching within one provider behind a gateway" is the cleaner story — and my gateway already makes switching a config edit, so I get the option value without the runtime complexity. Revisit at hundreds of users. |
 | Why a free-tier model (Gemini), not Claude? | Deliberate for a solo portfolio project — v1 runs at ~$0. Free tier is rate-limited and its data-use terms differ from paid, which I'd change before real users; the provider-agnostic gateway makes that a config swap, not a rewrite. Quality gap on structured JSON is small and my schema-validate-+-retry-+-seeded-fallback path absorbs it. |
 | Why not a component/animation library (shadcn, Animate UI)? | Hand-rolled OKLCH design + one surgical animation dep (Framer Motion). Adding a design system I didn't need is complexity I'd have to defend. |
+| Why no charting library (Recharts, Chart.js)? | The two charts are a `<polyline>` with gridlines and a row of proportional bars — roughly twenty lines of coordinate math. A charting lib would add a dependency, a theming layer fighting my OKLCH tokens, and bundle weight, to draw two rectangles and a line. I'd reach for one at the point I need axes, zoom, or tooltips I don't want to own. |
+| Why is `roadmaps.status` a dead column instead of the source of truth? | Because nothing naturally writes it. A roadmap decays into "stalled" through the *passage of time*, not a user action — so a stored status only refreshes when you touch the roadmap, meaning it's stale exactly when it matters, and keeping it honest needs a cron. Deriving on read can't go stale and is a pure unit-testable function. The cost is that three screens must call the same function, which I did in one change so they can't disagree. |
+| Why measure pace in whole weeks instead of exact elapsed time? | The plan is *authored* in weeks with week-sized kill criteria, so "a week behind" is the meaningful unit. Flooring also means a fresh roadmap expects zero hours and can't be flagged behind on day one — prorating by the hour would show a red banner three hours after someone made a plan, which trains people to ignore the banner. |
 | Why self-graded recall, not AI-graded? | Honesty + zero-cost + always works offline. AI grading is an optional cheap-tier *assist*, never the gate. |
 | Why quota of 3 roadmaps? | Cost containment on a usage-metered bill + forces focus. Enforced server-side, not just hidden in UI. |
 | How do you stop a shared link spiking your bill? | No unauthenticated AI route; per-user daily caps enforced server-side before dispatch; provider spend cap. |
@@ -344,6 +414,36 @@ Naming a limitation *first* reads as senior. Keep a real list:
 
 > Pull the best entry from [memory.md](./memory.md)'s bug log. Needs: symptom →
 > what I assumed → actual root cause → fix → what I changed to prevent the class.
+
+**"Floating-point told an on-track user they were behind." [Phase 3] — the best
+*correctness* story, and the one to tell if they ask about a subtle bug.**
+- _Symptom:_ A unit test on the behind-pace threshold failed. A user who had logged
+  **exactly** 9.6 hours against an expectation of 12 was classified **behind pace**
+  instead of on track.
+- _What I assumed:_ an off-by-one in the threshold — that I'd written `<=` where I
+  meant `<`, or picked the wrong ratio.
+- _Actual root cause:_ IEEE-754. The rule is "behind if `logged < expected × 0.8`", and
+  `12 * 0.8` does not evaluate to `9.6` in binary floating point — it's
+  **`9.600000000000001`**. So `9.6 < 9.600000000000001` is `true`, and the user was
+  behind pace by **1.8 × 10⁻¹⁵ hours**. I'd rounded the *logged* total to one decimal
+  place but compared it against a *raw* computed threshold — two values that should be
+  equal, compared at different precisions.
+- _Fix:_ round the threshold to the same 1dp as the value it's compared against. Not an
+  epsilon nudge — that just relocates the arbitrary line somewhere less obvious, and
+  you'd have to justify the epsilon. Two regression tests pin it: the exact boundary,
+  plus a "still behind a hair below" case proving the fix didn't merely widen the
+  threshold into meaninglessness.
+- _Why it's worth telling:_ it's a **user-visible honesty bug in the one screen whose
+  entire purpose is honesty** — it flips a green "On track" chip to a red BEHIND PACE
+  banner for someone who did exactly what they planned, and it would have been almost
+  impossible to report ("sometimes it says I'm behind when I'm not"). It was caught by a
+  test only because the aggregation is a **pure function with `now` injected** — the same
+  design choice made for the scheduler. Untestable clock-reading code would have shipped
+  it.
+- _The class-level lesson:_ **when a comparison decides something a user reads as a
+  verdict, round both sides to the same precision.** A derived comparison value is as
+  much a floating-point hazard as the value being compared — I'd been careful about one
+  side and not the other.
 
 **"My test said the app was insecure. The test was wrong." [Phase 2] — the best
 *process* story, and the one to tell if they ask about testing or debugging.**

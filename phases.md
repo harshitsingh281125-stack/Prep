@@ -54,13 +54,28 @@ See [tests/phase-2-recall.md](./tests/phase-2-recall.md).
 - **Demo:** grade a card → watch its next due date move per the algorithm; due
   count updates; "reviews due today" query verified against the index.
 
-## Phase 3 — Honest progress dashboard ⟵ NEXT
+## Phase 3 — Honest progress dashboard ⟵ IN QA
 **Goal:** the pace-vs-plan truth-teller.
-- `study_sessions` (log hours); aggregates for hours logged vs planned, pace,
-  recall-accuracy trend, topics mastered.
-- **Progress** screen: behind-pace banner (computed, not hard-coded), stat tiles,
-  hand-rolled SVG hours-bar + accuracy-line charts, blockers list.
-- Roadmap `status` (fresh/ontrack/behind/stalled) derived from real data.
+**Status:** code-complete; build green, Vitest **77/77**, Playwright E2E **31/31**.
+Migration `0005_study_sessions.sql` applied. **Awaiting the manual QA pass**
+([tests/phase-3-progress.md](./tests/phase-3-progress.md)) before it's marked DONE.
+- `study_sessions` (log hours, stored as **minutes** + a `1..1440` CHECK); aggregates
+  for hours logged vs planned, pace, recall-accuracy trend, topics mastered — all in
+  `lib/progress/compute.ts` as **pure functions with `now` injected**.
+- **Pace basis (settled 2026-08-08):** whole **elapsed weeks since `created_at`**,
+  capped at `weeks_count`, × the plan's weekly rate. Floored deliberately so a fresh
+  roadmap expects 0h and *cannot* be behind on day one. Not `target_date` (NULL on
+  every roadmap onboarding creates today).
+- **Progress** screen: behind-pace/stalled banner (computed, not hard-coded), 4 stat
+  tiles, hand-rolled SVG hours-bar + accuracy-line charts (Rule 22), blockers list
+  built from real signals, log-hours form, and an empty state.
+- **Week attribution (settled):** a session fills a week's bar via its **topic**
+  (`topic_id → topics.week_id`), not by calendar position — so "Week 3 hasn't started"
+  is literally true. Unattributed sessions count toward hours but fill no bar.
+- Roadmap `status` (fresh/ontrack/behind/stalled/done) **derived on read** by
+  `deriveStatus()`; `roadmaps.status` and `roadmaps.hours_logged` are now **vestigial**
+  (never written, never read). Library + Roadmap switched onto the derived values in
+  the same change so the three screens can't disagree.
 - **Demo:** log hours, fall behind, see the banner + blockers reflect reality.
 
 ## Phase 4 — AI Gateway + real generation

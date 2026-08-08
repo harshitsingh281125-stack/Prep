@@ -2,7 +2,7 @@ import Header from "@/components/shell/Header";
 import ContentArea from "@/components/shell/ContentArea";
 import { createClient } from "@/lib/supabase/server";
 import { roadmapStatusMeta } from "@/lib/roadmap/status";
-import type { RoadmapStatus } from "@/lib/seed/types";
+import { deriveStatus, hoursLogged, type SessionRow } from "@/lib/progress/compute";
 import RoadmapCard, { type RoadmapCardData } from "@/components/library/RoadmapCard";
 import NewRoadmapButton from "@/components/library/NewRoadmapButton";
 
@@ -30,15 +30,42 @@ export default async function LibraryPage() {
   // RLS already scopes both tables to the user, so no explicit user_id filter needed.
   const { data: roadmaps } = await supabase
     .from("roadmaps")
-    .select("id, title, subtitle, hours_planned, hours_logged, status, created_at, topics(status)")
+    .select("id, title, subtitle, hours_planned, weeks_count, created_at, topics(status)")
     .order("created_at", { ascending: false });
+
+  // Hours + status are DERIVED from study_sessions (Phase 3), not read from the
+  // roadmaps.hours_logged / roadmaps.status columns. Those columns are vestigial:
+  // nothing writes them, and a stored status would go stale the moment time passed
+  // without a write (a roadmap would only decay into "stalled" when you touched
+  // it — backwards). One fetch of the user's sessions covers every card.
+  const { data: sessionRows } = await supabase
+    .from("study_sessions")
+    .select("roadmap_id, minutes, topic_id, logged_at");
+
+  const sessionsByRoadmap = new Map<string, SessionRow[]>();
+  for (const s of sessionRows ?? []) {
+    const list = sessionsByRoadmap.get(s.roadmap_id) ?? [];
+    list.push({ minutes: s.minutes, topicId: s.topic_id, loggedAt: new Date(s.logged_at) });
+    sessionsByRoadmap.set(s.roadmap_id, list);
+  }
+
+  const now = new Date();
 
   const cards: RoadmapCardData[] = (roadmaps ?? []).map((r) => {
     const topics = (r.topics ?? []) as { status: string }[];
     const total = topics.length;
     const mastered = topics.filter((t) => t.status === "mastered").length;
-    const st = roadmapStatusMeta((r.status as RoadmapStatus) ?? "fresh");
-    const pct = r.hours_planned ? Math.round((r.hours_logged / r.hours_planned) * 100) : 0;
+    const sessions = sessionsByRoadmap.get(r.id) ?? [];
+    const roadmap = {
+      createdAt: new Date(r.created_at),
+      weeksCount: r.weeks_count,
+      hoursPlanned: r.hours_planned,
+    };
+    const logged = hoursLogged(sessions);
+    const st = roadmapStatusMeta(
+      deriveStatus({ roadmap, sessions, topicCount: total, masteredCount: mastered }, now)
+    );
+    const pct = r.hours_planned ? Math.round((logged / r.hours_planned) * 100) : 0;
     return {
       id: r.id,
       title: r.title,
@@ -47,7 +74,7 @@ export default async function LibraryPage() {
       statusColor: st.color,
       statusSoft: st.soft,
       pct,
-      hoursLogged: r.hours_logged,
+      hoursLogged: logged,
       hoursPlanned: r.hours_planned,
       mastered,
       total,

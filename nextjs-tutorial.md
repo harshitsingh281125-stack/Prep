@@ -541,6 +541,59 @@ explicitly.
 
 ---
 
+## 16. Parallel data fetching in a server component — `Promise.all` *(added: Phase 3)*
+
+**What.** A server component can `await` several queries, but writing them one after
+another makes them **sequential** — each waits for the previous to finish even when they
+don't depend on each other. Starting them together and awaiting once makes them
+**parallel**, so the page costs one round-trip instead of three:
+
+```tsx
+// Sequential — 3 round-trips, ~3x the latency:
+const weeks    = await supabase.from("weeks").select(...);
+const sessions = await supabase.from("study_sessions").select(...);
+const reviews  = await supabase.from("recall_reviews").select(...);
+
+// Parallel — all three in flight at once:
+const [{ data: weeks }, { data: sessions }, { data: reviews }] = await Promise.all([
+  supabase.from("weeks").select(...),
+  supabase.from("study_sessions").select(...),
+  supabase.from("recall_reviews").select(...),
+]);
+```
+
+**Why (as a React dev).** This is the server-side echo of the client waterfall you
+already know — a child component that fetches only after its parent resolved. In a
+client app you'd fix it with a parallel `Promise.all` in a `useEffect`, or by hoisting
+the fetches. The difference is *where the cost lands*: on the client a waterfall shows
+up as spinners, but in a server component it's dead time **before any HTML is sent**, so
+the user stares at a blank screen. The rule is the same one React Query taught you:
+**only serialise fetches that genuinely depend on each other.** In Prep the roadmap
+lookup *does* have to come first (its `id` feeds the other three queries), so it stays a
+separate `await` — then the three independent ones run together.
+
+**Where in Prep.**
+[app/(app)/progress/page.tsx](app/%28app%29/progress/page.tsx) — the roadmap is fetched
+first because everything else is scoped by its `id`, then weeks + study_sessions +
+recall_reviews are fetched with `Promise.all`. The same pattern appears in
+[app/(app)/roadmap/[id]/page.tsx](app/%28app%29/roadmap/%5Bid%5D/page.tsx), where the
+weeks tree and the roadmap's sessions are independent and fetch together.
+
+**Interview Q.** *"Your Progress page runs four queries. How do you keep that from being
+a four-deep waterfall?"* → Only the first is a genuine dependency — the roadmap id
+scopes the rest — so it's awaited alone, and the three independent queries go through
+`Promise.all` and run concurrently. The distinction is dependency, not count: awaiting
+in sequence is correct when a query needs the previous result, and pure latency tax when
+it doesn't. In a server component that tax is paid before the first byte of HTML.
+
+**Interview Q (follow-up).** *"Why not `Promise.allSettled`?"* → Here a failed query
+should fail the page rather than silently render a dashboard with a missing series — a
+progress screen that quietly drops your recall history is worse than one that errors.
+`allSettled` is the right call when a partial result is genuinely useful; this screen's
+whole promise is that its numbers are complete.
+
+---
+
 ## Concepts still to come (added as we build)
 
 - **`generateMetadata` (dynamic titles per roadmap)** *(later — nice-to-have)*.

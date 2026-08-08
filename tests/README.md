@@ -5,31 +5,38 @@ E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
 |-------|--------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST | `tests/unit/*.test.ts` |
-| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip (needs real session + DB) | `tests/e2e/*.spec.ts` |
-| **Manual** | You | Feel/timing/theme/visual, and multi-day scheduling | `tests/phase-<n>-*.md` |
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend | `tests/unit/*.test.ts` |
+| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging (needs real session + DB) | `tests/e2e/*.spec.ts` |
+| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, and elapsed-time pace behaviour | `tests/phase-<n>-*.md` |
 
 Manual matrices, one per phase:
-[phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md).
+[phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md) ·
+[phase-3-progress.md](./phase-3-progress.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **24** (6 seed + 18 scheduler) · Playwright **18**
-(10 Phase 1 + 8 recall), all green as of 2026-08-06.
+**Current counts:** Vitest **77** (6 seed + 18 scheduler + 53 progress) · Playwright
+**31** (10 Phase 1 + 8 recall + 13 sessions), all green as of 2026-08-08.
 
-### Two harness gotchas that have bitten this suite (read before writing a spec)
+### Three harness gotchas that have bitten this suite (read before writing a spec)
 
-Both produced failures that *looked* like app bugs and weren't — see memory.md.
+All produced failures that *looked* like app bugs and weren't — see memory.md.
 
 1. **`request.newContext()` inherits the project's `storageState`.** An "anonymous"
    request is only anonymous if you pass `storageState: { cookies: [], origins: [] }`.
 2. **Playwright follows redirects by default.** When asserting something is *blocked*,
    pass `maxRedirects: 0` — otherwise it chases the gate's 307 to `/login`, which
    renders a 200 and makes a blocked request look like a success.
+3. **`[attr!="x"]` is not valid CSS.** There is no `!=` attribute operator (that's
+   XPath/jQuery); Playwright throws `SyntaxError` on it. Use `:not([attr="x"])`.
+   Cost two red Phase 3 tests that had nothing to do with the app.
 
 Corollary: **when a test claims the app is broken, reproduce it outside the harness
-(curl / a probe) before changing app code.** Three of this project's "bugs" were the
-test lying. Also note fixtures should assert their own preconditions — a quota-full
-`403` from roadmap generation otherwise surfaces as a misleading "no cards rendered".
+(curl / a probe / `node -e`) before changing app code.** Four of this project's red
+suites were the test lying. Also note fixtures should assert their own preconditions —
+a quota-full `403` from roadmap generation otherwise surfaces as a misleading "no cards
+rendered". *(The reverse also holds: Phase 3's genuine float-boundary bug was confirmed
+with a bare `node -e` **before** the fix — the same discipline catches real bugs, not
+just false alarms.)*
 
 ---
 
@@ -39,10 +46,12 @@ test lying. Also note fixtures should assert their own preconditions — a quota
 npm run test:unit          # once
 npm run test:unit:watch    # watch mode
 ```
-Pure functions only — the seed generator (`lib/seed/generate.ts`) and the recall
-scheduler (`lib/recall/scheduler.ts`). No DB, no browser, no env needed. The scheduler
-takes `now` as an argument precisely so its date math is assertable here rather than
-needing a real clock.
+Pure functions only — the seed generator (`lib/seed/generate.ts`), the recall
+scheduler (`lib/recall/scheduler.ts`), and the progress aggregation
+(`lib/progress/compute.ts`). No DB, no browser, no env needed. The scheduler and the
+progress functions both take `now` as an argument precisely so their date math is
+assertable here rather than needing a real clock — which is also what let the Phase 3
+0.8-threshold float bug be caught by a test instead of by a user.
 
 ---
 
@@ -70,8 +79,9 @@ cp .env.test.example .env.test
 Edit `.env.test` and fill in the four values (`QA_A_EMAIL`, `QA_A_PASSWORD`,
 `QA_B_EMAIL`, `QA_B_PASSWORD`). **`.env.test` is gitignored — never commit it.**
 
-### 3. Make sure the migration is applied + dev server can run
-- `0003_roadmaps.sql` must be applied (the tables must exist).
+### 3. Make sure the migrations are applied + dev server can run
+- All migrations through **`0005_study_sessions.sql`** must be applied (the tables must
+  exist): `0003_roadmaps.sql`, `0004_recall.sql`, `0005_study_sessions.sql`.
 - Playwright will auto-start `npm run dev` on port 3001 if one isn't already running
   (it reuses an existing server if you have one up).
 
@@ -105,9 +115,26 @@ npm test                   # unit, then E2E
   affects none of A's rows; A's roadmap survives).
 - **`study-flow.spec.ts`** — TP-03/05/06 (kill-criterion check → mastered, persists
   across reload, roadmap count reflects it), CC-03 (delete → 404, gone from Library).
+- **`recall.spec.ts`** — RC-01/02/03 (anon blocked, non-binary grade rejected, unknown
+  card 404), RC-04/05/06 (grade round-trip, miss resets to +1d, session accuracy),
+  RC-07/08 (RLS: B can't grade or see A's cards).
+- **`sessions.spec.ts`** (Phase 3) — SE-01/02/03/04/05 (anon blocked; `minutes`
+  boundary validation incl. 0/-30/1441/45.5/NaN/`"60"`/null and the accepted 1 & 1440;
+  missing roadmapId 400; unknown roadmap 404), SE-06/07/08 (log → dashboard stats move;
+  the form path persists across reload; unattributed hours count but fill no bar),
+  SE-09/10/11 (cross-roadmap topic rejected; B can't log against A's roadmap;
+  client-supplied `logged_at` ignored), SE-12/13 (fresh roadmap shows no banner;
+  accuracy empty state). *The integrity core: proves session rows can't be forged,
+  misattributed, or backdated.*
 
 Each spec **cleans up the roadmaps it creates** (afterEach), so the shared project's
-quota resets and rows don't accumulate.
+quota resets and rows don't accumulate. Deleting a roadmap cascades its
+`study_sessions` and `recall_cards` away, which is what resets the dashboard between
+tests.
+
+> **Port note:** if 3001 is busy with a server you don't control, run your own on a
+> free port and point Playwright at it: `PW_PORT=3005 npx playwright test` (start
+> `npx next dev -p 3005` first). Phase 2 and Phase 3 were both run this way.
 
 ---
 

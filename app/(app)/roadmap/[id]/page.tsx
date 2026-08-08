@@ -3,7 +3,8 @@ import Header from "@/components/shell/Header";
 import ContentArea from "@/components/shell/ContentArea";
 import { createClient } from "@/lib/supabase/server";
 import { roadmapStatusMeta } from "@/lib/roadmap/status";
-import type { RoadmapStatus, TopicStatus } from "@/lib/seed/types";
+import { deriveStatus, hoursLogged, type SessionRow } from "@/lib/progress/compute";
+import type { TopicStatus } from "@/lib/seed/types";
 import WeekAccordion, { type WeekData } from "@/components/roadmap/WeekAccordion";
 
 export const dynamic = "force-dynamic";
@@ -17,17 +18,20 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
 
   const { data: roadmap } = await supabase
     .from("roadmaps")
-    .select("id, title, subtitle, hours_planned, hours_logged, status")
+    .select("id, title, subtitle, hours_planned, weeks_count, created_at")
     .eq("id", id)
     .single();
 
   if (!roadmap) notFound();
 
-  const { data: weeks } = await supabase
-    .from("weeks")
-    .select("id, n, title, hours, kill_criterion, topics(id, name, status, position)")
-    .eq("roadmap_id", id)
-    .order("n", { ascending: true });
+  const [{ data: weeks }, { data: sessionRows }] = await Promise.all([
+    supabase
+      .from("weeks")
+      .select("id, n, title, hours, kill_criterion, topics(id, name, status, position)")
+      .eq("roadmap_id", id)
+      .order("n", { ascending: true }),
+    supabase.from("study_sessions").select("minutes, topic_id, logged_at").eq("roadmap_id", id),
+  ]);
 
   const weekData: WeekData[] = (weeks ?? []).map((w) => {
     const topics = ((w.topics ?? []) as { id: string; name: string; status: string; position: number }[])
@@ -56,13 +60,36 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
   const inProgress = allTopics.filter((t) => t.status === "in_progress").length;
   const pct = totalTopics ? Math.round((masteredTopics / totalTopics) * 100) : 0;
 
-  const st = roadmapStatusMeta((roadmap.status as RoadmapStatus) ?? "fresh");
+  // Status + hours are derived from study_sessions (Phase 3), not read from the
+  // vestigial roadmaps.status / roadmaps.hours_logged columns — same reasoning as
+  // Library: a stored status goes stale as soon as time passes without a write.
+  const sessions: SessionRow[] = (sessionRows ?? []).map((s) => ({
+    minutes: s.minutes,
+    topicId: s.topic_id,
+    loggedAt: new Date(s.logged_at),
+  }));
+  const logged = hoursLogged(sessions);
+  const st = roadmapStatusMeta(
+    deriveStatus(
+      {
+        roadmap: {
+          createdAt: new Date(roadmap.created_at),
+          weeksCount: roadmap.weeks_count,
+          hoursPlanned: roadmap.hours_planned,
+        },
+        sessions,
+        topicCount: totalTopics,
+        masteredCount: masteredTopics,
+      },
+      new Date()
+    )
+  );
 
   const tiles: StatTile[] = [
     { label: "Progress", value: `${pct}%`, sub: `${masteredTopics} of ${totalTopics} topics mastered` },
     {
       label: "Hours",
-      value: `${roadmap.hours_logged} / ${roadmap.hours_planned}`,
+      value: `${logged} / ${roadmap.hours_planned}`,
       sub: "logged vs planned",
     },
     { label: "In progress", value: `${inProgress}`, sub: "topics started, not mastered" },
