@@ -24,7 +24,7 @@
 │  ── quota + rate-limit enforcement                          │
 │  ── AI Gateway (provider-agnostic)                          │
 │  ── schema validation + retry-on-malformed                  │
-│  ── SM-2 scheduling writes                                  │
+│  ── recall scheduling writes (ladder + ease)                │
 └───────┬───────────────────────────────────┬────────────────┘
         │ service-role (server only)         │
         ▼                                     ▼
@@ -70,7 +70,7 @@
 |-------|--------|---------|-----|
 | `/api/roadmaps/generate` | POST | onboarding answers → schema-valid roadmap → persist | ✅ reasoning tier |
 | `/api/topics/[id]/detail` | POST | generate mental model + exercises; **RAG-ground** ranked resources on the curated corpus (Phase 4.5) | ✅ reasoning tier + `embed()` |
-| `/api/recall/[cardId]/grade` | POST | apply SM-2, write next due date | ⚪ optional cheap-tier assist |
+| `/api/recall/[cardId]/grade` | POST | run the scheduler, write next due date + review log | ⚪ optional cheap-tier assist |
 | `/api/recall/generate` | POST | derive recall cards for a topic | ✅ classification tier |
 | `/api/sessions` | POST | log study hours | ❌ |
 | `/api/usage` | GET | current user's AI usage vs cap | ❌ |
@@ -139,24 +139,31 @@ notes (
 recall_cards (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
-  topic_id uuid references topics on delete set null,
-  roadmap_id uuid,
+  topic_id uuid references topics on delete set null,  -- set null: keep history if the topic goes
+  roadmap_id uuid references roadmaps on delete cascade,
+  topic_label text not null,      -- denormalised topic name (survives topic deletion)
   question text not null,
-  -- SM-2 state:
-  ease numeric default 2.5,
-  interval_days int default 0,
-  repetitions int default 0,
+  -- scheduler state (fixed ladder + ease modifier — lib/recall/scheduler.ts):
+  ease numeric default 2.5,       -- clamped 1.3 .. 2.8
+  interval_days int default 0,    -- 0 = never reviewed
+  repetitions int default 0,      -- consecutive correct grades
   due_at timestamptz not null default now(),
-  last_reviewed_at timestamptz
+  last_reviewed_at timestamptz,
+  created_at timestamptz default now()
 )
 
 recall_reviews (
   id uuid primary key default gen_random_uuid(),
   card_id uuid not null references recall_cards on delete cascade,
   user_id uuid not null,
-  grade text not null,            -- 'right' | 'wrong'  (self-graded)
+  grade text not null,            -- 'right' | 'wrong'  (self-graded, check-constrained)
+  -- the scheduler's decision at grade time (audit + Phase 3 accuracy trend):
+  interval_after int not null,
+  ease_after numeric not null,
   reviewed_at timestamptz default now()
 )
+-- append-only: a new grade INSERTS a row, never updates one, so accuracy history
+-- survives even though the card's own state is overwritten each review.
 
 study_sessions (
   id uuid primary key default gen_random_uuid(),
@@ -190,6 +197,51 @@ order by due_at asc;
 This composite index is the answer to the interview question in the PRD. Be ready
 to explain: why `(user_id, due_at)` order, why it beats a full scan, and how RLS
 + the index interact.
+
+**Column order (the part that matters):** `user_id` leads because it's the
+**equality** predicate — and the column RLS filters on — so Postgres seeks straight
+to one user's contiguous block. `due_at` follows because it's both the **range**
+filter and the sort key, so walking that block emits rows already in `due_at` order:
+an index range scan with no sort node. Flipping to `(due_at, user_id)` would sort by
+date across *all* users, making the work grow with total traffic instead of with the
+caller's own queue. Rule of thumb: **equality columns first, the range column last**
+so it can also serve the `ORDER BY`.
+
+### 4b. The scheduler (Phase 2) — fixed ladder + ease modifier
+
+Implemented by hand in `lib/recall/scheduler.ts` (Rule 14), as a **pure function with
+`now` injected** — no clock reads, no DB — which is what makes the UTC/DST behaviour
+unit-testable.
+
+```
+LADDER = [1, 4, 14, 30] days          ease ∈ [1.3, 2.8], starts 2.5
+
+right → repetitions += 1
+        rung < 4 : interval = round(LADDER[rung] × (ease / 2.5))
+        rung ≥ 4 : interval = round(prevInterval × ease)   // past the ladder
+        ease += 0.1
+wrong → repetitions = 0, interval = 1                      // hard reset (Rule 17)
+        ease -= 0.2                                        // penalty PERSISTS
+due_at = now + interval days                               // epoch ms, UTC (Rule 15)
+```
+
+**It is a justified variant, not SM-2 — say so.** Textbook SM-2 derives intervals
+purely from ease (1, 6, then ×ease → ~15, ~38) and grades on a 0–5 quality scale.
+Prep advertises a `+1d/+4d/+14d/+30d` cadence in the UI, and self-grades **binary**
+(Got it / Missed) by product design — which collapses SM-2's ease formula to two
+cases anyway. So we keep the ladder the product promises as the backbone and keep
+SM-2's per-card adaptivity as a modifier on top. Claiming "I implemented SM-2" when
+the intervals aren't SM-2's is the kind of thing one follow-up question exposes.
+
+**Why the write is a server route, not client+RLS.** Unlike notes/mastery (Phase 1,
+written directly from the browser), grading goes through
+`/api/recall/[cardId]/grade`. RLS answers *"may this user write this row?"*; it
+cannot answer *"is this the number the algorithm would have produced?"* A client
+computing its own `due_at` could post a 10-year interval and opt out of spaced
+repetition entirely. The handler therefore reads **only** `grade` off the body and
+rejects anything that isn't exactly `right`/`wrong`. Generalised rule-of-thumb
+refinement to §1: it isn't owned-vs-not-owned, it's **whether the value being written
+is derived from a rule the product must guarantee.**
 
 ### Daily quota (server-enforced)
 ```sql

@@ -5,12 +5,31 @@ E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
 |-------|--------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10) | `tests/unit/*.test.ts` |
-| **E2E** | Playwright | P0 security/RLS/mastery/cascade (needs real session + DB) | `tests/e2e/*.spec.ts` |
-| **Manual** | You | Feel/timing/theme (OB-03, TP-08, CC-02, visual) | `tests/phase-1-roadmaps.md` |
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST | `tests/unit/*.test.ts` |
+| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip (needs real session + DB) | `tests/e2e/*.spec.ts` |
+| **Manual** | You | Feel/timing/theme/visual, and multi-day scheduling | `tests/phase-<n>-*.md` |
 
-The full manual test matrix is [phase-1-roadmaps.md](./phase-1-roadmaps.md). The
-automated suites cover the highest-value subset of it; everything else stays manual.
+Manual matrices, one per phase:
+[phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md).
+The automated suites cover the highest-value subset; everything else stays manual.
+
+**Current counts:** Vitest **24** (6 seed + 18 scheduler) · Playwright **18**
+(10 Phase 1 + 8 recall), all green as of 2026-08-06.
+
+### Two harness gotchas that have bitten this suite (read before writing a spec)
+
+Both produced failures that *looked* like app bugs and weren't — see memory.md.
+
+1. **`request.newContext()` inherits the project's `storageState`.** An "anonymous"
+   request is only anonymous if you pass `storageState: { cookies: [], origins: [] }`.
+2. **Playwright follows redirects by default.** When asserting something is *blocked*,
+   pass `maxRedirects: 0` — otherwise it chases the gate's 307 to `/login`, which
+   renders a 200 and makes a blocked request look like a success.
+
+Corollary: **when a test claims the app is broken, reproduce it outside the harness
+(curl / a probe) before changing app code.** Three of this project's "bugs" were the
+test lying. Also note fixtures should assert their own preconditions — a quota-full
+`403` from roadmap generation otherwise surfaces as a misleading "no cards rendered".
 
 ---
 
@@ -20,7 +39,10 @@ automated suites cover the highest-value subset of it; everything else stays man
 npm run test:unit          # once
 npm run test:unit:watch    # watch mode
 ```
-Pure functions only (the seed generator). No DB, no browser, no env needed.
+Pure functions only — the seed generator (`lib/seed/generate.ts`) and the recall
+scheduler (`lib/recall/scheduler.ts`). No DB, no browser, no env needed. The scheduler
+takes `now` as an argument precisely so its date math is assertable here rather than
+needing a real clock.
 
 ---
 
@@ -100,7 +122,7 @@ is upgraded to 20+, the override can be removed to move to current Playwright.
 
 ## Reporting a manual pass
 
-For the cases that stay manual (see [phase-1-roadmaps.md](./phase-1-roadmaps.md) §
-report format), run them and reply with `ID Pass` / `ID FAIL — actual vs expected`.
+For the cases that stay manual (see the current phase's matrix — its § report format),
+run them and reply with `ID Pass` / `ID FAIL — actual vs expected`.
 Fails get logged in [../memory.md](../memory.md) as bugs and fixed before the phase is
 marked demoable (Rule 24/27).
