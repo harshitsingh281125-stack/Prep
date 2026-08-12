@@ -318,21 +318,128 @@ status from a pure function — so the dashboard structurally *cannot* flatter y
   empty state instead of a misleading two-point "trend", and a <5-point wobble is
   labelled **flat** rather than dressed up as progress.
 
-### 4c. Structured output enforcement [Phase 4]
-- _How reliable JSON is guaranteed from an LLM:_ schema + validate + retry-on-malformed
-  + seeded-template fallback so AI never hard-blocks a flow.
-- _"What happens when the model returns garbage twice?"_ ...
-- _"Why not trust the model / use function-calling only?"_ ...
+### 4c. Structured output enforcement [Phase 4 — built]
 
-### 4d. Prompt design for the roadmap generator [Phase 4]
-- _What fields the schema demands and why:_ ...
-- _The iteration story ("v1 generated bad plans because X, fixed by Y"):_ ...
+- _The four-layer answer, cheapest first:_ (1) the provider's own **structured-output
+  mode** (`responseSchema`) constrains generation; (2) **my own validator** re-checks
+  the parsed result, because "the provider promised JSON" is not the same as "this is
+  a roadmap my database can accept"; (3) **one retry** with a nudge appended to the
+  input; (4) a **seeded-template fallback**, so the user always gets a working
+  roadmap. Layer 2 is the one people skip and it's the one that matters — provider
+  schema modes constrain *shape*, not *semantics*.
+- _"What happens when the model returns garbage twice?"_ → The caller falls back to
+  the seeded generator and the flow completes normally, 200 not 500. Both dispatches
+  are still metered (they cost real tokens), the failure shows up as a non-zero
+  **fallback rate** on the usage screen, and the UI labels the content `template`
+  with the specific reason. The user is never blocked and never lied to.
+- _"Why not just retry until it works?"_ → Because a retry is a real dispatch against
+  a real quota. One retry catches the transient malformed response; a second is
+  usually the model being reliably wrong about that prompt, and you're now burning
+  the user's cap to fail more slowly. There's a related subtlety: **provider errors
+  are not retried at all** — Rule 9's retry is retry-on-*malformed*; re-dispatching
+  into an outage just spends a second call to fail identically.
+- _The detail I'd lead with:_ the cap is **re-checked before the retry**. Someone
+  sitting on their last call of the day can't step over the limit because their first
+  response happened to be malformed. It's a two-line check and it's the kind of thing
+  that only shows up if you write the boundary test.
+- _"Why hand-rolled validators instead of zod?"_ → The shapes are three small
+  objects, and the validators do a **normalising** job a generic validator wouldn't:
+  they fuse the model's content with server-owned numbers (see 4d). A schema library
+  would validate what I chose to ask for and still leave me writing that fusion by
+  hand.
 
-### 4e. Cost / model routing [Phase 4]
-- _v1 model pick:_ **Google Gemini free tier** — Flash for `reasoning`, Flash-Lite for
-  `classification`, Gemini embeddings for `embed()`. Chosen so a solo portfolio project
-  runs at ~$0; the provider-agnostic gateway means moving to paid Claude/Gemini is a
-  config edit, not a rewrite.
+### 4d. Prompt design for the roadmap generator [Phase 4 — built]
+
+- **The decision worth leading with: the model writes CONTENT, not CONTRACT.** The
+  roadmap schema contains no week count, no hours, no week numbers. Not "validated" —
+  *absent*. Those come from the user's onboarding answers, computed server-side, and
+  stamped onto the validated result; week numbers come from array position.
+- _Why:_ "8 weeks at 10h/week" is a promise the user made to themselves, and the
+  entire progress dashboard divides by exactly those numbers. If the model returned 6
+  weeks because it felt tidier, every pace figure downstream would be measuring
+  against a plan the user never chose — silently. Validating would only *catch* that;
+  not asking makes it **impossible**. It also cuts output tokens, and it's what makes
+  the seeded fallback a genuine drop-in: both paths produce a plan with the same
+  contract, so falling back can't reshape the user's plan.
+- _What the schema does demand:_ title, subtitle, and per week a title, a **kill
+  criterion**, and 2–6 topic names. The kill criterion is the interesting field — the
+  system prompt insists it be *checkable* ("implement a debounce from scratch and
+  explain what the closure captures"), never a feeling ("understand closures well"),
+  because the whole product rests on mastery being earned (Rule 16).
+- _Validation beyond types:_ a week that repeats a topic name is rejected — it would
+  create duplicate topic rows and duplicate recall cards, and a repeated question in
+  one session is a **false recall signal** (you get it right because you just read
+  it), which corrupts the exact data the retention loop is built on.
+- _Prompt-caching discipline (this is a design constraint, not a config flag):_ every
+  system prompt is a module-level constant with **no interpolation**; all per-user
+  variation lives in the input. Implicit caching keys on a stable leading prefix, so
+  one interpolated user name in the system string would silently take the hit-rate to
+  zero. Same reason the retry nudge is appended to the *input* — rewriting the system
+  string on retry would invalidate the cached prefix and make the retry cost more than
+  the call it's retrying.
+
+### 4e-i. Metering, the cap, and the one table users can't write [Phase 4 — built]
+
+**This is the strongest security story in the project — lead with it over the RLS one.**
+
+- _The setup:_ every AI call is capped per user per day, and the cap is a `COUNT` of
+  rows in `ai_usage`. Every other table in the schema uses the same flat RLS policy:
+  `for all using (user_id = auth.uid())` — you own your rows, you can do anything to
+  them.
+- _The hole that would have created:_ `ai_usage` rows are the user's own rows. Under
+  that standard policy, any signed-in browser could send
+  `DELETE /rest/v1/ai_usage` **with the public anon key** and reset its own cap to
+  zero. The cap wouldn't be bypassed by a clever exploit — it would just be advisory,
+  by construction, while looking perfectly correct in the code that checks it.
+- _The fix:_ `ai_usage` gets `for select` only, and **no insert/update/delete policy
+  at all**. The gateway writes it through the service-role client, which bypasses RLS
+  by design. Reads stay open because the user needs their own usage readout.
+- _The generalisation, and the reason this is worth telling:_ each phase of this
+  project sharpened the same rule of thumb. Phase 1: "owned rows can be written from
+  the client." Phase 2 corrected it: "not if the **value** is derived from a rule the
+  product must guarantee" (the scheduler's `due_at`). Phase 4 corrected it again: **a
+  row can be *about* a user without being *theirs to write*. Ownership decides who may
+  READ; whether the value enforces a product rule decides who may WRITE.**
+- _Defence in depth on the privileged client:_ it's typed against a `Database`
+  containing only `ai_usage`, so reaching for the RLS-bypassing client to dodge an
+  inconvenient check on another table is a **compile error**; and `import
+  "server-only"` makes leaking it into a client bundle a **build failure**. Two guards
+  that cost about ten lines and turn conventions into errors.
+- _Why failures are metered too:_ one row per provider **dispatch**, including the
+  malformed and the errored ones. Metering only successes would make the cap
+  under-count *exactly when a broken model is burning the most quota* — the moment it
+  matters most. It also turns the fallback rate into a visible number instead of an
+  invisible degradation.
+- _And it's tested:_ four E2E cases prove the owner can read but can neither DELETE
+  nor INSERT their usage rows. Worth admitting the near-miss — those four **skipped
+  silently** for a run because they read the session token from `localStorage`, while
+  this app uses cookie-based `@supabase/ssr` sessions. The suite said "41 passed, 4
+  skipped" and looked green. **A conditional skip in a security test is a hole with a
+  green tick on it.**
+
+### 4e. Cost / model routing [Phase 4 — built]
+- _v1 model pick:_ **Google Gemini** — `gemini-3.5-flash` for `reasoning`,
+  `gemini-3.5-flash-lite` for `classification`, `gemini-embedding-001` for `embed()`.
+  Chosen so a solo portfolio project runs at ~$0; the provider-agnostic gateway means
+  moving to paid Claude/Gemini is a config edit, not a rewrite. Model ids were
+  verified against the live `models.list` endpoint before the adapter was written —
+  I don't build against a model id I read in a doc.
+- _The honest cost readout (say the caveat before they find it):_ `/usage` shows what
+  was **actually charged** ($0.00 on the free tier) next to a **projection** at
+  published paid-tier rates, computed at read time from real token counts. The
+  projection is never stored — same reasoning as deriving roadmap status: a stored
+  projection goes stale the moment the rate card or model binding changes, and a
+  column named `cost_usd` holding money nobody was charged is a fiction waiting to be
+  quoted back at me. So the résumé claim is *"designed and measured the controls;
+  projected N% saving at paid rates"* — never "cut costs N%" on a free tier.
+- _What "cache hit-rate" is measured over, in case they push:_ input tokens only.
+  Output is never cached, so including it would dilute the rate and understate the
+  win. And `cached_input_tokens` is a **subset** of `input_tokens`, not an addition —
+  treating it as an addition would bill cached tokens twice and make caching look
+  like it *raised* the bill.
+- _$/roadmap includes the failures:_ all roadmap-route spend divided by roadmaps
+  actually produced. A generation that had to be retried genuinely made that roadmap
+  more expensive; hiding retries in the numerator would flatter the number.
 - _The counterintuitive routing decision (lead with this):_ the pricier-per-token tier
   sits on the **rare** call (roadmap gen — ≤3 per user, ever, by the quota rule), the
   cheap tier on the **frequent** one (recall grading — fires every review). **Cost
@@ -444,6 +551,36 @@ Naming a limitation *first* reads as senior. Keep a real list:
   verdict, round both sides to the same precision.** A derived comparison value is as
   much a floating-point hazard as the value being compared — I'd been careful about one
   side and not the other.
+
+**"I congratulated users for keeping up with a deck they never made." [Phase 4] —
+the best story for *"a bug that wasn't a crash"* or *"how do you catch product bugs".***
+- _Symptom:_ six previously-green Phase 2 E2E tests started failing, waiting for recall
+  cards that never rendered.
+- _First move — reproduce outside the harness before touching app code_ (standing
+  discipline in this project; four earlier red suites were the *test* lying). Probed
+  the AI provider directly: **HTTP 200**. It had recovered mid-build. So roadmaps were
+  now genuinely AI-generated, with the model's own topic names — and the seeded recall
+  questions are keyed by *catalog* topic name. Nothing matched, so a new roadmap
+  correctly started with an **empty deck**. That was intended: generating cards for
+  20-odd topics at onboarding would blow the daily cap in one action.
+- _So the failures were a documented consequence, not a defect — but checking what a
+  **user** would actually see found the real bug._ With zero cards, the Recall screen
+  rendered *"Queue clear. Nothing is due right now. Don't cram ahead — the spacing is
+  the point."* It was telling someone they were **caught up on a retention loop they
+  had never started.**
+- _Why it existed:_ nobody wrote that bug. Before this phase the state was
+  **unreachable** — onboarding always seeded a queue, so "no cards due" could only ever
+  mean "you're caught up," and the copy was correct for four years of its life. A new
+  feature made a previously-impossible state possible, and an existing message quietly
+  became a lie.
+- _The fix:_ count *total* cards, not just due ones; a distinct "No recall cards yet"
+  empty state that tells you what to do; "Queue clear" reserved for a deck that
+  actually exists.
+- _The class-level lesson:_ **when a feature makes a previously-impossible state
+  possible, audit the messages that assumed it couldn't happen.** It's also the kind of
+  bug no type checker, unit test, or crash report will ever surface — the code was
+  working exactly as written. Bonus: it was a **vanity metric** (Rule 19 explicitly
+  bans them) created by accident, without anyone adding a metric.
 
 **"My test said the app was insecure. The test was wrong." [Phase 2] — the best
 *process* story, and the one to tell if they ask about testing or debugging.**

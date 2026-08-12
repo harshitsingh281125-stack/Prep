@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ONBOARDING_STEPS } from "@/lib/seed/catalog";
+import { ONBOARDING_STEPS, NOT_SURE, weakAreasForRole } from "@/lib/seed/catalog";
 import type { OnboardingAnswers } from "@/lib/seed/types";
 
 const MONO = "'IBM Plex Mono',monospace";
@@ -34,6 +34,12 @@ export default function OnboardingWizard({
   const isLast = idx === steps.length - 1;
   const canGenerate = answers.weak.length > 0;
 
+  // The weak-area options follow the role answered in step 1; every other step's
+  // options are fixed. Resolved at render so going back and changing the role
+  // immediately re-offers the right list.
+  const currentOptions =
+    current.id === "weak" ? weakAreasForRole(answers.role) : current.options;
+
   function jumpStep(i: number) {
     if (i <= maxStep) setIdx(i);
   }
@@ -41,11 +47,26 @@ export default function OnboardingWizard({
   function choose(value: string) {
     if (current.multi) {
       setAnswers((a) => {
-        const arr = a.weak.includes(value) ? a.weak.filter((x) => x !== value) : [...a.weak, value];
+        // "Not sure" is mutually exclusive with everything else: "I don't know
+        // where I'm weak, and also React internals" isn't a coherent answer.
+        if (value === NOT_SURE) {
+          return { ...a, weak: a.weak.includes(NOT_SURE) ? [] : [NOT_SURE] };
+        }
+        const without = a.weak.filter((x) => x !== NOT_SURE);
+        const arr = without.includes(value)
+          ? without.filter((x) => x !== value)
+          : [...without, value];
         return { ...a, weak: arr };
       });
     } else {
-      setAnswers((a) => ({ ...a, [current.id]: value }));
+      setAnswers((a) => {
+        // Changing the ROLE changes which weak areas exist, so previously-picked
+        // ones may no longer be valid options. Clear them rather than carry a
+        // stale selection the server would then reject with a confusing
+        // "Pick at least one weak area."
+        const roleChanged = current.id === "role" && a.role !== value;
+        return { ...a, [current.id]: value, ...(roleChanged ? { weak: [] } : {}) };
+      });
       const next = Math.min(idx + 1, steps.length - 1);
       setIdx(next);
       setMaxStep((m) => Math.max(m, next));
@@ -169,11 +190,18 @@ export default function OnboardingWizard({
         <div style={{ fontFamily: MONO, fontSize: "12px", color: "var(--text-faint)", marginBottom: "8px" }}>
           Question {idx + 1} of {steps.length}
         </div>
-        <div style={{ fontSize: "18px", fontWeight: 600, letterSpacing: "-0.01em", marginBottom: "16px" }}>
+        <div style={{ fontSize: "18px", fontWeight: 600, letterSpacing: "-0.01em", marginBottom: current.hint ? "6px" : "16px" }}>
           {current.q}
         </div>
+        {/* Sets expectations about what the answer actually controls — see the
+            weak-areas note in lib/seed/catalog.ts. */}
+        {current.hint && (
+          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "16px", lineHeight: 1.5 }}>
+            {current.hint}
+          </div>
+        )}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-          {current.options.map((label) => {
+          {currentOptions.map((label) => {
             const selected = current.multi
               ? answers.weak.includes(label)
               : (answers[current.id] as string) === label;

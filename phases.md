@@ -81,38 +81,72 @@ See [tests/phase-3-progress.md](./tests/phase-3-progress.md).
   the same change so the three screens can't disagree.
 - **Demo:** log hours, fall behind, see the banner + blockers reflect reality.
 
-## Phase 4 — AI Gateway + real generation ⟵ NEXT
+## Phase 4 — AI Gateway + real generation ✅ DONE (2026-08-12)
 **Goal:** swap the seed for real AI behind the gateway — *this is where the model
 brainstorm lands.*
-- Build `lib/ai/gateway.ts`: tiered `complete()`, schema validation +
-  retry-on-malformed, `ai_usage` metering, per-user daily caps, prompt caching.
-- **⟶ Model/provider decision (SETTLED — 2026-07-28):** v1 uses **Google Gemini's
-  free tier** across all bindings, chosen so a solo portfolio project runs at ~$0
-  while the gateway keeps the pick swappable:
-  - `reasoning` → **Gemini Flash** (roadmap gen + topic detail — the rare, high-value
-    calls; quality matters, volume is tiny under the 3-roadmap quota).
-  - `classification` → **Gemini Flash-Lite** (recall grading + recall-card gen — the
-    frequent, low-value calls; cheapest tier wins here).
-  - `embed()` → **Gemini's free embedding model** (Phase 4.5 RAG) — keeps the whole
-    stack on one free provider; its output dim sets the `vector(N)` column width.
+**Status:** built + tested (Vitest **165/165**, Playwright E2E **51/51**, **full manual
+pass green — all 74 cases**, including the suites that need config changes and a
+dev-server restart per case (CAP's `AI_DAILY_CALL_CAP=2`, FALL's four `AI_MOCK_MODE`
+runs) and the browser-console RLS bypass attempts (SEC-03/04/05) — QA gate closed,
+Rule 27). Migration `0006_ai_usage.sql` applied. Branch `phase-3-progress` / PR open.
+See [tests/phase-4-ai-gateway.md](./tests/phase-4-ai-gateway.md).
+**Three defects found and fixed during the phase** (all in memory.md): the E2E suite
+silently spending real Gemini tokens, the generator building single-topic roadmaps,
+and month-scale timelines parsing as weeks.
+- `lib/ai/gateway.ts`: tiered `complete()` returning a **discriminated union rather
+  than throwing** (so every call site must state its fallback), schema validation +
+  one retry-on-malformed, `ai_usage` metering, the per-user daily cap, and
+  dependency-injected provider/meter/counter so the cap and retry logic are
+  unit-testable with no network and no DB.
+- **⟶ Model/provider decision (SETTLED 2026-07-28; ids verified against the live
+  `models.list` endpoint 2026-08-08):** Google **Gemini**, bound in `lib/ai/config.ts`
+  — the only file in the repo naming a model:
+  - `reasoning` → **`gemini-3.5-flash`** (roadmap gen + topic detail — the rare,
+    high-value calls; quality matters, volume is tiny under the 3-roadmap quota).
+  - `classification` → **`gemini-3.5-flash-lite`** (recall-card gen — the frequent,
+    low-value call; cheapest tier wins here).
+  - `embed()` → **`gemini-embedding-001`** (Phase 4.5 RAG) — keeps the whole stack on
+    one provider; its output dim sets the `vector(N)` column width.
   - *The counterintuitive routing point (interview asset):* the pricier-per-token
     tier sits on the **rare** call, the cheap tier on the **frequent** one — cost
     follows call volume, not perceived importance. The provider-agnostic gateway
     means A/B-ing Gemini vs Claude later is a config edit, not a rewrite.
-- Wire `/api/roadmaps/generate`, `/api/topics/[id]/detail`, `/api/recall/generate`
-  to the gateway; seeded generator stays as the validated-failure fallback.
-- Topic-detail resources are **generated (unverified)** at this stage — RAG grounding
-  lands in 4.5. Flag them so the UI can mark them until the corpus exists.
-- Optional cheap-tier assist on free-text recall grading (self-grade stays default).
-- **Cost showcase (the résumé asset):** on top of the required metering + caps +
-  provider spend cap, build a small internal **cost readout** — $/roadmap, token
-  usage per call, cache hit-rate, before/after prompt-caching — computed from
-  `ai_usage`. On the free tier the *dollar* saving is ~$0, so caching is framed as a
-  **latency + token-efficiency** win at v1; the readout also **projects** the saving
-  at paid-tier rates, which is the honest form of the "cut inference cost ~X%" bullet.
+  - **Honesty correction from the build:** the free tier proved *unreliable*, not just
+    rate-limited — it returned 429 "prepayment credits are depleted" for days on a
+    zero-usage project (a Google-side incident; see memory.md). So the claim is "runs
+    at ~$0 with a paid upgrade that's a config edit", not "free forever". Ironically
+    this exercised Rule 9 against a real multi-day outage instead of a simulated one.
+- Wired `/api/roadmaps/generate` (reasoning), `/api/topics/[id]/detail` (reasoning),
+  `/api/recall/generate` (classification); the seeded generator stays as the
+  validated-failure fallback, and both generation routes **check ownership before
+  spending a call**.
+- **The model writes content, not contract (settled 2026-08-08):** the roadmap schema
+  contains no week count, hours, or week numbers — those come from the user's answers
+  and are stamped on server-side. Validating them would only catch a mismatch; not
+  asking makes one impossible, and it's what keeps the seeded fallback a true drop-in.
+- **Topic detail is generated on demand (settled 2026-08-08):** roadmaps now ship with
+  `detail: null` on every topic — on **both** paths — and the Topic screen offers an
+  explicit *Generate with AI* button. Auto-generating on open would spend 15–25 calls
+  just to browse a roadmap. The seeded template moved to `lib/seed/detail.ts` and
+  became the Rule 9 fallback for that route.
+- Topic-detail resources are **generated (unverified)** at this stage and carry an
+  amber chip saying so — RAG grounding lands in 4.5.
+- ~~Optional cheap-tier assist on free-text recall grading.~~ **Not built,
+  deliberately.** Prep self-grades **binary**, so there is no free text to grade; and
+  Rule 17 ("close enough is a miss") is about the user being honest with themselves —
+  delegating it to a model inclined to be generous would undermine the retention loop.
+- **`ai_usage` is the one table users may read but not write** — SELECT-only RLS,
+  service-role inserts. The daily cap is a `COUNT` of those rows, so the usual
+  `for all` policy would have let any browser `DELETE` its way to an uncapped
+  endpoint. See Architecture §4.
+- **Cost showcase (the résumé asset):** `/usage` screen — calls vs cap, $/roadmap,
+  tokens per call, cache hit-rate, fallback rate, per-route breakdown. It reports
+  **what was actually charged ($0.00 on the free tier) next to a projection at
+  paid-tier rates**, computed at read time from real token counts and never stored.
+  That separation is the honest form of the "cut inference cost ~X%" bullet.
 - **Demo:** real onboarding answers → a genuinely generated, schema-valid roadmap;
-  usage + cost visible in `ai_usage`; caps enforced; cost readout shows $/roadmap
-  and cache hit-rate.
+  generate a topic's study material and its recall cards on demand; usage + cost
+  visible on `/usage`; caps enforced; kill the key and watch every flow still work.
 
 ## Phase 4.5 — RAG: ground topic resources on a curated corpus
 **Goal:** kill hallucinated/dead resource links by retrieving over vetted docs —
@@ -147,14 +181,27 @@ the *only* genuine retrieval problem in Prep, so the only place RAG earns its ke
 ---
 
 ## Open questions to resolve during the phases
-- ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28:** Gemini free
-  tier (Flash = reasoning, Flash-Lite = classification, Gemini embeddings = `embed()`);
-  provider-agnostic gateway keeps it swappable. See Phase 4 above + memory.md. Still
-  to confirm during the build: Gemini's exact free-tier rate limits, whether the free
-  tier's data-use terms are acceptable for this project, and the embedding model's
-  output dim (sets the `vector(N)` width in Phase 4.5).
+- ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28; ids confirmed
+  against the live API 2026-08-08:** `gemini-3.5-flash` (reasoning) /
+  `gemini-3.5-flash-lite` (classification) / `gemini-embedding-001` (`embed()`);
+  provider-agnostic gateway keeps it swappable. The three "still to confirm" items
+  resolved as: **rate limits** — not published statically, visible per-key in AI
+  Studio, and the in-app cap (25/day, env-overridable) sits well under them;
+  **data-use terms** — free-tier content *is* used to improve Google products, paid
+  tier is not, so enabling billing removes that caveat entirely; **embedding output
+  dim** — still open, and only matters when Phase 4.5 writes the `vector(N)` column.
 - ~~Exact scheduling-interval tuning (validate the +1/+4/+14/+30 cadence vs pure SM-2).~~
   — **SETTLED 2026-08-06:** fixed ladder + SM-2 ease modifier. See Phase 2 + memory.md.
-- Roadmap JSON schema final shape (fields the generator must return).
-- Onboarding question wording / weak-area taxonomy.
+- ~~Roadmap JSON schema final shape (fields the generator must return).~~ —
+  **SETTLED 2026-08-08:** `{ title, subtitle, weeks: [{ title, killCriterion,
+  topics: string[] }] }`, and what it deliberately **omits** matters more than what
+  it contains — no week numbers, no hours, no week count. See `lib/ai/validate.ts`.
+- **[Phase 4.5] embedding output dim** — sets the `vector(N)` column width. Confirm
+  from a real `embed()` response before writing that migration.
+- **Onboarding wording / weak-area taxonomy / role scope** — deferred past Phase 4
+  on purpose (2026-08-12). Roles and weak-area options are frontend-specific because
+  **the seeded fallback catalog is a frontend curriculum**; adding "Backend" would
+  mean an AI failure hands that user a frontend plan (Rule 9 breaks quietly). Opening
+  it up needs either role-dependent options + honest fallback labelling, or real
+  per-role catalogs. Revisit in Phase 5. See memory.md.
 - Product name (still "Prep").

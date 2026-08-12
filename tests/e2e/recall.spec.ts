@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { generateRoadmap, deleteRoadmap } from "./helpers";
+import { generateRoadmap, deleteRoadmap, generateCardsForFirstTopic, assertMockProvider } from "./helpers";
 
 // Phase 2 E2E — the P0 recall cases that genuinely need a real session + DB:
 // auth gating, RLS cross-user isolation, malformed-grade rejection, and the core
@@ -12,6 +12,19 @@ import { generateRoadmap, deleteRoadmap } from "./helpers";
 //  2. Optimistic DOM ≠ persisted write. Wait on the network response, not the pixel.
 
 const created: string[] = [];
+
+// This spec generates recall cards, so it spends AI calls too (see helpers).
+test.beforeAll(async ({ browser }) => {
+  // NOT browser.newPage(): that makes a fresh context with no storageState, so
+  // /api/usage would 401 and the guard would report a broken check rather than a
+  // real answer. Load User A's saved session explicitly.
+  const ctx = await browser.newContext({ storageState: "tests/e2e/.auth/userA.json" });
+  try {
+    await assertMockProvider(await ctx.newPage());
+  } finally {
+    await ctx.close();
+  }
+});
 
 test.afterEach(async ({ page }) => {
   // Deleting the roadmap cascades its cards away (recall_cards.roadmap_id is
@@ -37,6 +50,13 @@ async function seedQueue(page: import("@playwright/test").Page): Promise<string>
   ).toBe(201);
   expect(id).toBeTruthy();
   created.push(id!);
+
+  // CHANGED IN PHASE 4. Roadmap creation no longer fills the recall queue: a
+  // generated roadmap's topic names are the model's own, so they match nothing
+  // in the catalog-keyed seed and the deck starts empty (by design — generating
+  // cards for 15-25 topics at onboarding would blow the daily cap in one go).
+  // Cards are now generated per topic, so the fixture asks for them explicitly.
+  await generateCardsForFirstTopic(page, id!);
   return id!;
 }
 

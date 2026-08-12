@@ -33,6 +33,18 @@ export default async function RecallPage() {
 
   const rows = cards ?? [];
 
+  // Phase 4: "nothing is DUE" and "you have no cards AT ALL" are different
+  // situations and must not share a screen. Before Phase 4 they could never be
+  // confused, because onboarding always seeded a queue from the catalog. Now an
+  // AI-generated roadmap invents its own topic names, matches no seeded
+  // questions, and legitimately starts with an empty deck — at which point the
+  // old copy ("Queue clear. Nothing is due right now.") congratulates a user for
+  // keeping up with a retention loop they have never started. That's a vanity
+  // metric by accident, which is exactly what Rule 19 exists to prevent.
+  const { count: totalCards } = await supabase
+    .from("recall_cards")
+    .select("id", { count: "exact", head: true });
+
   // The "+4d" chip shows the gap this card earns on a CORRECT grade — i.e. the
   // next rung of the ladder, nudged by the card's own ease. This mirrors
   // schedule()'s right-branch so the preview matches what the server will decide.
@@ -53,15 +65,17 @@ export default async function RecallPage() {
   });
 
   const subtitle =
-    due.length === 0
-      ? "Nothing due right now"
-      : `${due.length} question${due.length === 1 ? "" : "s"} due today`;
+    (totalCards ?? 0) === 0
+      ? "No cards yet"
+      : due.length === 0
+        ? "Nothing due right now"
+        : `${due.length} question${due.length === 1 ? "" : "s"} due today`;
 
   return (
     <>
       <Header title="Recall" subtitle={subtitle} />
       <ContentArea maxWidth={740}>
-        <RecallQueue cards={due} />
+        <RecallQueue cards={due} totalCards={totalCards ?? 0} />
       </ContentArea>
     </>
   );

@@ -1,42 +1,17 @@
 // The seed roadmap generator (Phase 1). Turns onboarding answers into a full
-// roadmap tree (weeks → topics → per-topic detail) by slicing + reordering the
-// fixed CATALOG. No AI. In Phase 4 this exact function becomes the schema-valid
-// fallback the AI generator falls back to when a generation is malformed (Rule 9),
-// which is why it returns the same SeedRoadmap shape the AI path must produce.
+// roadmap tree (weeks → topics) by slicing + reordering the fixed CATALOG. No AI.
+//
+// Phase 4 promoted it to what it was always designed to be: the schema-valid
+// fallback /api/roadmaps/generate uses when the model is capped, unreachable, or
+// returns malformed JSON twice (Rule 9). It returns the same SeedRoadmap shape
+// the AI path produces — including, since Phase 4, `detail: null` on every topic.
+// Detail is generated on demand per topic now (lib/seed/detail.ts holds the
+// fallback for that call), so the two paths yield structurally identical trees
+// and a fallback can never be spotted by the shape of what it built.
 
-import { CATALOG, TOPIC_DETAIL, type CatalogBlock } from "./catalog";
-import type { OnboardingAnswers, SeedRoadmap, SeedWeek, TopicDetail } from "./types";
-
-// Pull the first integer out of an answer like "5 weeks" / "12h"; fall back if
-// the option has no number ("No date yet", "As much as it takes").
-function parseNum(v: string, fallback: number): number {
-  const m = String(v).match(/\d+/);
-  return m ? Number(m[0]) : fallback;
-}
-
-// A topic we don't have hand-written detail for still needs a coherent detail
-// blob (the design's topicDetail fallback branch). Honest placeholder copy that
-// pushes the "state the model first" discipline.
-function buildFallbackDetail(name: string): TopicDetail {
-  return {
-    model: `State the one-sentence model for "${name}" before any code — the thing you'd say in the interview first. If you can't say it plainly, you don't own it yet.`,
-    resources: [
-      { title: `Primary reference for ${name}`, meta: "docs · 25 min", tag: "Docs" },
-      { title: `Deep dive: ${name}`, meta: "article · 35 min", tag: "Deep" },
-      { title: `Talk: ${name} in practice`, meta: "video · 30 min", tag: "Talk" },
-    ],
-    exercises: [
-      {
-        title: "Explain it in 90 seconds",
-        desc: `Record yourself explaining ${name} with no notes. Rewatch and cut the hand-waving.`,
-      },
-      {
-        title: "Build the smallest example",
-        desc: `Implement the minimal working case for ${name} from scratch, then break one assumption.`,
-      },
-    ],
-  };
-}
+import { CATALOG, declaredWeakAreas, type CatalogBlock } from "./catalog";
+import { planContract } from "./answers";
+import type { OnboardingAnswers, SeedRoadmap, SeedWeek } from "./types";
 
 // Order the catalog: blocks matching a weak area first (in the user's pick order),
 // then the remaining blocks in their natural curriculum order. Stable + no dupes.
@@ -72,10 +47,11 @@ function orderBlocks(weak: string[]): CatalogBlock[] {
  *   reinforcing your weak areas" plan, not invented new content.
  */
 export function generateSeedRoadmap(answers: OnboardingAnswers): SeedRoadmap {
-  const weeksCount = Math.max(1, parseNum(answers.timeline, 5));
-  const perWeek = parseNum(answers.hours, 12);
+  // Shared with the AI path so a fallback can't reshape the user's plan.
+  const { weeksCount, perWeekHours: perWeek } = planContract(answers);
 
-  const ordered = orderBlocks(answers.weak);
+  // "Not sure" is not an area to front-load — it means don't front-load anything.
+  const ordered = orderBlocks(declaredWeakAreas(answers.weak));
 
   // Take up to weeksCount blocks; if we need more, pad by cycling the ordered list
   // (front-loaded focus first) so the extra weeks reinforce the weak areas.
@@ -92,7 +68,7 @@ export function generateSeedRoadmap(answers: OnboardingAnswers): SeedRoadmap {
     topics: block.topics.map((t) => ({
       name: t.name,
       status: t.status,
-      detail: TOPIC_DETAIL[t.name] ?? buildFallbackDetail(t.name),
+      detail: null, // generated on demand — see lib/seed/detail.ts
     })),
   }));
 

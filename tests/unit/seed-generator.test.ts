@@ -68,13 +68,19 @@ describe("generateSeedRoadmap", () => {
     expect(r.weeks.map((w) => w.title)).toEqual(CATALOG.map((b) => b.title));
   });
 
-  it("every topic carries a non-empty detail blob (model + resources + exercises)", () => {
+  // CHANGED IN PHASE 4. This used to assert every topic shipped with a filled-in
+  // detail blob. Detail is now generated on demand from the Topic screen, so a
+  // freshly created roadmap carries none — and that must hold for the SEED path
+  // too, not just the AI path. If the fallback quietly re-added detail, a user
+  // could tell which path built their roadmap by whether its topics arrived
+  // pre-filled, and the fallback would stop being a drop-in.
+  it("ships topics with no detail — generated on demand instead (Phase 4)", () => {
     const r = generateSeedRoadmap({ ...base, weak: ["React internals"] });
     for (const w of r.weeks) {
       for (const t of w.topics) {
-        expect(t.detail.model.length).toBeGreaterThan(0);
-        expect(t.detail.resources.length).toBeGreaterThan(0);
-        expect(t.detail.exercises.length).toBeGreaterThan(0);
+        expect(t.detail).toBeNull();
+        expect(t.name.length).toBeGreaterThan(0);
+        expect(t.status).toBe("not_started");
       }
     }
   });

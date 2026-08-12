@@ -37,7 +37,10 @@ export default function WeekAccordion({
   const allMastered = week.total > 0 && week.mastered === week.total;
 
   return (
-    <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}>
+    <div
+      data-testid="week-accordion"
+      style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "12px", overflow: "hidden" }}
+    >
       {/* Header (clickable to toggle) */}
       <button
         onClick={() => setOpen((o) => !o)}

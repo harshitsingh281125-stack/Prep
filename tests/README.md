@@ -4,20 +4,50 @@ Two layers, split by what actually needs a browser + DB (QA-lead discipline: don
 E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
-|-------|--------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend | `tests/unit/*.test.ts` |
-| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging (needs real session + DB) | `tests/e2e/*.spec.ts` |
-| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, and elapsed-time pace behaviour | `tests/phase-<n>-*.md` |
+|-------|--------------|--------|-------|
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering | `tests/unit/*.test.ts` |
+| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS (needs real session + DB) | `tests/e2e/*.spec.ts` |
+| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, **and the real AI provider** | `tests/phase-<n>-*.md` |
 
 Manual matrices, one per phase:
 [phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md) ·
-[phase-3-progress.md](./phase-3-progress.md).
+[phase-3-progress.md](./phase-3-progress.md) · [phase-4-ai-gateway.md](./phase-4-ai-gateway.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **77** (6 seed + 18 scheduler + 53 progress) · Playwright
-**31** (10 Phase 1 + 8 recall + 13 sessions), all green as of 2026-08-08.
+**Current counts:** Vitest **146** (6 seed + 6 seed-detail + 18 scheduler + 53 progress
++ 25 ai-validate + 18 ai-cost + 20 ai-gateway) · Playwright **51** (10 Phase 1 + 8 recall
++ 13 sessions + 20 AI), all green as of 2026-08-08.
 
-### Three harness gotchas that have bitten this suite (read before writing a spec)
+### The E2E suite runs against the MOCK AI provider — read this before trusting it
+
+`playwright.config.ts` starts the dev server with `AI_PROVIDER=mock` and
+`AI_DAILY_CALL_CAP=500`. Three reasons, all learned in Phase 4:
+
+1. **A suite that depends on a third party's uptime is not a test of your code.**
+   Phase 4 opened with Gemini's free tier returning 429 for days (memory.md).
+2. **The real cap is 25/day.** A full run makes well over 25 dispatches, so against a
+   live provider the suite exhausts its own cap partway through and every later spec
+   fails as "capped" rather than on its own merits.
+3. Once billing is on, it costs money.
+
+The mock still goes through the **entire** gateway — cap, validation, retry,
+metering — so everything under test is ours. **What is therefore NEVER exercised
+automatically: the real Gemini adapter** (wire format, token accounting, cache hits).
+That is manual suite **LIVE** in `phase-4-ai-gateway.md`, and skipping it means the
+provider integration has been tested by nobody.
+
+**The suite runs on port 3101, not the dev port, and never reuses a server.** That is
+a bug fix, not a preference: it previously defaulted to 3001 with
+`reuseExistingServer: true`, so if you had `npm run dev` running, Playwright reused
+**your** server — with your real API key — and `AI_PROVIDER=mock` never applied. It
+spent **26 real Gemini calls** that way while reporting green (memory.md). Every spec
+that generates now also calls `assertMockProvider()` in `beforeAll` and **refuses to
+run** against a real provider. Override the port with `PW_PORT=<n>` if 3101 is taken.
+
+`AI_MOCK_MODE=ok|malformed|malformed-once|error` injects failures, which is the only
+practical way to reach the retry and seeded-fallback paths on demand.
+
+### Harness gotchas that have bitten this suite (read before writing a spec)
 
 All produced failures that *looked* like app bugs and weren't — see memory.md.
 
@@ -29,6 +59,17 @@ All produced failures that *looked* like app bugs and weren't — see memory.md.
 3. **`[attr!="x"]` is not valid CSS.** There is no `!=` attribute operator (that's
    XPath/jQuery); Playwright throws `SyntaxError` on it. Use `:not([attr="x"])`.
    Cost two red Phase 3 tests that had nothing to do with the app.
+4. **`reuseExistingServer: true` will happily reuse a server started before your
+   env vars existed.** Next.js reads env only at startup, so a config change can
+   appear to do *nothing* while you edit it repeatedly. Phase 4 lost a cycle to
+   this. Check what's actually listening (`ss -ltnp | grep 3001`) and kill it
+   before concluding the config is wrong.
+5. **A conditional `test.skip()` in a security test is a hole with a green tick on
+   it.** Phase 4's four `ai_usage` RLS cases skipped silently for a run because they
+   read the session from `localStorage` — but this app uses `@supabase/ssr`, whose
+   session lives in **cookies** (chunked `sb-<ref>-auth-token.0/.1`, base64-encoded).
+   The summary said "41 passed, 4 skipped" and looked fine. Prefer asserting the
+   precondition over skipping on it.
 
 Corollary: **when a test claims the app is broken, reproduce it outside the harness
 (curl / a probe / `node -e`) before changing app code.** Four of this project's red
@@ -80,8 +121,10 @@ Edit `.env.test` and fill in the four values (`QA_A_EMAIL`, `QA_A_PASSWORD`,
 `QA_B_EMAIL`, `QA_B_PASSWORD`). **`.env.test` is gitignored — never commit it.**
 
 ### 3. Make sure the migrations are applied + dev server can run
-- All migrations through **`0005_study_sessions.sql`** must be applied (the tables must
-  exist): `0003_roadmaps.sql`, `0004_recall.sql`, `0005_study_sessions.sql`.
+- All migrations through **`0006_ai_usage.sql`** must be applied (the tables must
+  exist): `0003_roadmaps.sql`, `0004_recall.sql`, `0005_study_sessions.sql`,
+  `0006_ai_usage.sql`.
+- No AI provider key is needed to run E2E — the suite uses the mock provider.
 - Playwright will auto-start `npm run dev` on port 3001 if one isn't already running
   (it reuses an existing server if you have one up).
 
@@ -118,6 +161,16 @@ npm test                   # unit, then E2E
 - **`recall.spec.ts`** — RC-01/02/03 (anon blocked, non-binary grade rejected, unknown
   card 404), RC-04/05/06 (grade round-trip, miss resets to +1d, session accuracy),
   RC-07/08 (RLS: B can't grade or see A's cards).
+- **`ai.spec.ts`** (Phase 4) — AI-01/02/03/04 (all four AI routes blocked when
+  anonymous), AI-05/06/07/08 (unknown-topic 404 *before* any spend, `topicId`
+  validation, User B blocked from generating against A's topic), AI-09/10/11/12
+  (Rule 9: the flow completes whatever the AI does — roadmap always matches the
+  user's contract, a topic starts empty and always ends with detail, detail persists
+  across reload, repeat card generation doesn't duplicate), AI-13/14/15/16
+  (`/api/usage` coherence, charged-vs-projected kept separate, the cap meter renders,
+  a dispatch writes a usage row), AI-17/18/19/20 (**the security core**: the owner
+  can read their `ai_usage` rows but can neither DELETE nor INSERT them, and B can't
+  see A's spend — this is what stops the daily cap being self-resettable).
 - **`sessions.spec.ts`** (Phase 3) — SE-01/02/03/04/05 (anon blocked; `minutes`
   boundary validation incl. 0/-30/1441/45.5/NaN/`"60"`/null and the accepted 1 & 1440;
   missing roadmapId 400; unknown roadmap 404), SE-06/07/08 (log → dashboard stats move;
@@ -132,9 +185,12 @@ quota resets and rows don't accumulate. Deleting a roadmap cascades its
 `study_sessions` and `recall_cards` away, which is what resets the dashboard between
 tests.
 
-> **Port note:** if 3001 is busy with a server you don't control, run your own on a
-> free port and point Playwright at it: `PW_PORT=3005 npx playwright test` (start
-> `npx next dev -p 3005` first). Phase 2 and Phase 3 were both run this way.
+> **Port note (updated Phase 4):** Playwright now starts its **own** server on
+> **3101** and never reuses one, so you can leave `npm run dev` running on 3001 and
+> the two won't interact. Only override if 3101 itself is taken:
+> `PW_PORT=3105 npx playwright test` — no need to start a server yourself any more.
+> *(Phases 2 and 3 predate this and were run by hand-starting a server on a free
+> port; that workaround is what the current config makes unnecessary.)*
 
 ---
 

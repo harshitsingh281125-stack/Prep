@@ -73,12 +73,24 @@ owned-vs-not-owned):
 ### API route handlers (all auth-gated)
 | Route | Method | Purpose | AI? |
 |-------|--------|---------|-----|
-| `/api/roadmaps/generate` | POST | onboarding answers → schema-valid roadmap → persist | ✅ reasoning tier |
-| `/api/topics/[id]/detail` | POST | generate mental model + exercises; **RAG-ground** ranked resources on the curated corpus (Phase 4.5) | ✅ reasoning tier + `embed()` |
-| `/api/recall/[cardId]/grade` | POST | run the scheduler, write next due date + review log | ⚪ optional cheap-tier assist |
-| `/api/recall/generate` | POST | derive recall cards for a topic | ✅ classification tier |
+| `/api/roadmaps/generate` | POST | onboarding answers → schema-valid roadmap → persist; seeded fallback | ✅ reasoning tier |
+| `/api/roadmaps/[id]` | DELETE | delete a roadmap (cascades its tree) | ❌ |
+| `/api/topics/[id]/detail` | POST | generate mental model + exercises + (unverified) resources → persist to `topics.detail`; seeded fallback. **RAG-grounds** the resources in Phase 4.5 | ✅ reasoning tier (+ `embed()` in 4.5) |
+| `/api/recall/[cardId]/grade` | POST | run the scheduler, write next due date + review log | ❌ (self-grade only — see below) |
+| `/api/recall/generate` | POST | derive recall cards for one topic; seeded fallback, dedupes | ✅ classification tier |
 | `/api/sessions` | POST | log study hours (validates minutes + roadmap/topic ownership) | ❌ |
-| `/api/usage` | GET | current user's AI usage vs cap | ❌ |
+| `/api/usage` | GET | current user's AI usage vs cap + the cost readout | ❌ |
+
+**Grading stayed non-AI.** The Phase 4 spec floated an optional cheap-tier assist
+on free-text recall grading; it wasn't built. Prep self-grades **binary** (Got it /
+Missed) by product design, so there is no free text to grade — an AI call there
+would be answering a question the product doesn't ask. Rule 17 ("close enough is a
+miss") is a *user honesty* rule, and outsourcing it to a model that is structurally
+inclined to be generous would work against the one thing the recall loop is for.
+
+**Ownership is checked before spend.** Both generation routes that take an id
+re-derive ownership of the row (`.eq('user_id', …)` on top of RLS → 404) *before*
+entering the gateway, so a stranger's id can never spend a provider call.
 
 Reads that don't need privilege (list my roadmaps, my due cards, my notes) go
 **directly through supabase-js under RLS** — no API route needed.
@@ -193,16 +205,48 @@ study_sessions (
 create index study_sessions_roadmap_idx on study_sessions (roadmap_id, logged_at desc);
 create index study_sessions_user_idx    on study_sessions (user_id, logged_at desc);
 
+-- Phase 4. One row per provider DISPATCH (not per user action): a generation that
+-- came back malformed and was retried writes two. Failures are metered too — the
+-- provider billed for them, and metering only successes would make the cap
+-- under-count exactly when a broken model is burning the most quota.
 ai_usage (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  route text not null,            -- which endpoint
-  model text,                     -- which model actually served it
-  input_tokens int, output_tokens int,
-  cost_usd numeric,
-  created_at timestamptz default now()
+  user_id uuid not null references auth.users on delete cascade,
+  route text not null,            -- which endpoint spent the call
+  tier text not null,             -- reasoning|classification|embedding (check-constrained)
+  model text not null,            -- which model actually served it
+  input_tokens int not null default 0,
+  output_tokens int not null default 0,
+  cached_input_tokens int not null default 0,  -- SUBSET of input_tokens, not an addition
+  cost_usd numeric not null default 0,         -- ACTUALLY charged; 0 on the free tier
+  status text not null,           -- 'ok' | 'invalid' | 'error' (check-constrained)
+  attempts int not null default 1,-- 2 = this dispatch was the retry-on-malformed
+  latency_ms int,
+  created_at timestamptz not null default now()
 )
+create index ai_usage_user_day_idx on ai_usage (user_id, created_at desc);
 ```
+
+**`ai_usage` is the one table whose RLS is deliberately NOT the flat `for all`
+policy** every other table here uses. It gets `for select using (user_id =
+auth.uid())` and **no insert/update/delete policy at all**; the gateway writes it
+through the service-role client (`lib/supabase/admin.ts`). **Why:** the daily cap
+is a `COUNT` of these rows, so a `for all` policy would let any signed-in browser
+`DELETE /rest/v1/ai_usage` with the anon key and reset its own cap — Rule 3's
+"hard cap" would be advisory. Generalising the Phase 2/3 rule-of-thumb one step
+further: **a row can be about a user without being theirs to write. Ownership
+decides who may READ it; whether the value enforces a product rule decides who
+may WRITE it.** The service-role client is typed against only this table, so
+using it to bypass RLS elsewhere is a compile error, and `import "server-only"`
+makes leaking it into a client bundle a build failure.
+
+**`cost_usd` is what was actually charged — not the paid-tier projection.** On the
+v1 free tier it is `0` on every row. The projection ($/roadmap, cache saving) is
+derived at read time in `lib/ai/cost.ts` from the token columns × a rate card, for
+the same reason §4c derives roadmap status instead of storing it: a stored
+projection goes stale the moment the rate card or the model binding changes, and a
+column named `cost_usd` holding money nobody was charged is a fiction waiting to be
+quoted. `AI_BILLING_MODE=paid` switches it to the computed cost once billing is real.
 
 ### The gradeable index/query — "reviews due today"
 ```sql
@@ -328,38 +372,65 @@ create index ai_usage_user_day_idx on ai_usage (user_id, created_at);
 A single server-side module. Product code depends on **this interface only** —
 never a vendor SDK.
 
+**As built (Phase 4).** The shipped signature differs from the original sketch in
+one way worth calling out: it returns a **discriminated union rather than
+throwing**, and the caller must destructure `ok`.
+
 ```ts
 // lib/ai/gateway.ts  (server-only)
-type Tier = 'reasoning' | 'classification';
+type Tier = 'reasoning' | 'classification' | 'embedding';
 
-interface AIGateway {
-  complete(opts: {
-    tier: Tier;
-    system: string;          // cacheable scaffolding
-    input: string;
-    schema?: JSONSchema;     // when set → validate + retry on malformed
-    userId: string;          // for metering + caps
-  }): Promise<{ data: unknown; usage: Usage }>;
+async function complete<T>(opts: {
+  tier: Exclude<Tier, 'embedding'>;
+  route: string;              // the endpoint spending the call → $/roadmap grouping
+  userId: string;             // metering + caps
+  system: string;             // fixed, cacheable scaffolding (no interpolation!)
+  input: string;              // the per-call variable part
+  jsonSchema?: JsonSchema;    // provider-side structured-output constraint
+  validate: (raw: unknown) => T | null;   // OUR check; null ⇒ unusable
+}, deps?: Partial<GatewayDeps>): Promise<
+  | { ok: true;  data: T; usage: Usage; model: string; attempts: number }
+  | { ok: false; reason: 'cap' | 'provider' | 'invalid' | 'disabled'; attempts: number }
+>;
 
-  // Phase 4.5 (RAG): embeddings route through the same gateway so they're
-  // provider-agnostic AND metered like completions (Rules 7, 8, 11).
-  embed(opts: {
-    input: string | string[];  // query text, or a batch of corpus docs
-    userId: string;            // for metering + caps
-  }): Promise<{ vectors: number[][]; usage: Usage }>;
-}
+// Phase 4.5 (RAG): embed() joins the same module, metered identically (Rules 7/8/11).
 ```
+
+**Why a union and not an exception.** An AI failure is a routine, expected branch
+here — Rule 9 says it must never hard-block a flow. Forcing every call site to
+destructure `ok` means every call site has to *state its fallback*; a thrown error
+can be forgotten and take out the request. `deps` exists so the cap/retry/metering
+logic is unit-testable against a fake provider with no network and no DB — the same
+discipline as the pure scheduler (§4b) and progress aggregation (§4c).
+
+**The gateway owns four things call sites are not trusted with:**
+
+1. **The cap** (Rule 3) — counted from `ai_usage` *before* dispatch, and re-checked
+   before the retry so a user on the boundary can't step over it via a malformed
+   first response. It **fails closed**: if the usage table can't be read we cannot
+   prove the user is under their cap, so we don't dispatch (a DB blip must not
+   silently produce an uncapped AI endpoint).
+2. **Validation + exactly one retry** (Rule 9), then it gives up on purpose.
+3. **Metering** (Rule 11) — one row per dispatch, failures included.
+4. **The provider binding** — which adapter, which model for this tier.
+
+**Provider adapters** implement a deliberately narrow interface (`complete()` →
+text + token counts). Two ship: `gemini` (raw `fetch`, no vendor SDK — Rule 7) and
+`mock` (deterministic, with injectable failure modes via `AI_MOCK_MODE`, used by
+local dev and the whole E2E suite so tests never depend on a third party's uptime).
 
 - **Tiers, not model names**, in product code. A config map binds each tier to a
   concrete model. **v1 binding (settled 2026-07-28) — Google Gemini free tier:**
   ```ts
   // lib/ai/config.ts  (the ONLY file naming concrete models)
   const MODELS = {
-    reasoning:      'gemini-flash',       // roadmap gen, topic detail (rare, high-value)
-    classification: 'gemini-flash-lite',  // recall grading, recall-card gen (frequent)
-    embedding:      'gemini-embedding',   // embed() for Phase 4.5 RAG
+    reasoning:      'gemini-3.5-flash',       // roadmap gen, topic detail (rare, high-value)
+    classification: 'gemini-3.5-flash-lite',  // recall-card gen (frequent)
+    embedding:      'gemini-embedding-001',   // embed() for Phase 4.5 RAG
   };
   ```
+  *(Model ids verified against the live `models.list` endpoint before the adapter
+  was written, 2026-08-08.)*
   Chosen so a solo portfolio project runs at ~$0. **Cost-routing insight:** the
   pricier-per-token tier is on the *rare* call, the cheap tier on the *frequent* one
   — cost tracks volume, not importance. Swapping to Claude (or A/B-ing) = editing this
@@ -367,10 +438,21 @@ interface AIGateway {
 - **Schema validation + retry:** if `schema` is set, validate the response; on
   failure, retry once with a "return valid JSON only" nudge; on repeated failure,
   the caller falls back to a **seeded template** (app never hard-blocks).
-- **Prompt caching:** `system` scaffolding is marked cacheable where the provider
-  supports it. On the v1 free tier the *dollar* saving is ~$0 (already free), so
-  caching is a **latency + token-efficiency** win here; the dollar saving becomes
-  real at paid-tier rates — which is how the cost readout below frames it.
+- **Prompt caching — be precise about which kind.** We rely on Gemini's **implicit**
+  caching, not the explicit `CachedContent` API. Implicit caching keys on a stable
+  leading prefix, so the mechanism is a discipline rather than a call: every
+  `SYSTEM_*` string in `lib/ai/prompts.ts` is a module constant with **no
+  interpolation**, and all per-user variation lives in the input. Move one
+  user-specific token up into the system string and the hit-rate silently goes to
+  zero. The retry nudge is appended to the *input* for the same reason — rewriting
+  the system string on retry would invalidate the cached prefix and make the retry
+  cost more than the call it retries. `cached_input_tokens` is recorded per dispatch
+  so the hit-rate is **measured, not assumed**. *Explicit `CachedContent` was
+  considered and skipped: it carries minimum-token thresholds and TTL management for
+  a scaffolding block of a few hundred tokens — cost without benefit at this size.*
+  On the v1 free tier the *dollar* saving is ~$0 (everything is free), so caching is
+  a **latency + token-efficiency** win here; the dollar saving becomes real at
+  paid-tier rates, which is how the cost readout frames it.
 - **Metering + cost readout:** every `complete()` **and** `embed()` call writes an
   `ai_usage` row (route, model, tokens, cost); caps are checked before dispatch. A
   small internal **cost readout** aggregates these into $/roadmap, per-call token
