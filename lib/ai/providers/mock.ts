@@ -86,11 +86,22 @@ function buildGroundedDetail(input: string): unknown {
   const docCount = (input.match(/^\d+\.\s\[/gm) ?? []).length || 1;
   const picks = Math.min(docCount, 3);
 
+  // The `why` strings are DELIBERATELY VERBOSE — ~200 characters, matching what
+  // the real model actually writes. They used to be short phrases I made up
+  // ("the primary reference"), and that fixture hid a total failure: the real
+  // provider writes 200-220 chars, the validator capped `why` at 90, so every
+  // grounded generation was rejected and fell through to the ungrounded path
+  // while this mock kept the whole suite green. A fixture that doesn't resemble
+  // production output tests the fixture. Keep these long.
+  const verbose = (n: number) =>
+    `Supporting reference ${n} that provides the definitive step-by-step treatment of this mechanism, ` +
+    `covering the edge cases most explanations skip and the reason the common misconception persists.`;
+
   return {
     model: `Mock grounded mental model for ${topic}: lead with the mechanism, then name the misconception it kills, then say what breaks when it is absent.`,
     resources: Array.from({ length: picks }, (_, i) => ({
       ref: i + 1,
-      why: i === 0 ? "the primary reference" : `supporting read ${i + 1}`,
+      why: verbose(i + 1),
     })),
     exercises: [
       { title: "Explain it cold", desc: `Say what ${topic} is in 90 seconds with no notes.` },

@@ -353,7 +353,15 @@ export const GROUNDED_DETAIL_SCHEMA: JsonSchema = {
 export const GROUNDED_LIMITS = {
   /** At least one selected document, else there was no point grounding. */
   resourcesMin: 1,
-  whyMax: 90,
+  /**
+   * Hard reject above this. Deliberately generous: a `why` this long means the
+   * model misunderstood the field (it wrote a summary, not a caption), which is
+   * worth failing on. Anything shorter is a formatting problem, not a
+   * correctness one — see `condenseWhy`.
+   */
+  whyMax: 400,
+  /** Display budget for the caption inside the resource row's meta line. */
+  whyDisplayMax: 110,
 } as const;
 
 /** corpus `kind` → the resource chip the Topic screen already renders. */
@@ -364,6 +372,35 @@ const KIND_TO_TAG: Record<string, SeedResource["tag"]> = {
   talk: "Talk",
   spec: "Spec",
 };
+
+/**
+ * Trim the model's caption to something that fits the resource row.
+ *
+ * THIS FUNCTION EXISTS BECAUSE OF A REAL BUG, and the reasoning is the reusable
+ * part. `whyMax` was originally 90 characters — a number I picked from how long I
+ * thought a caption should be. Real Gemini output writes 200–220 characters here
+ * (measured: 223, 212, 206 on the first live topic). So every grounded
+ * generation failed validation, was retried, failed again, and fell through to
+ * the ungrounded path: the feature was 100% broken against the real provider
+ * while both test suites were green, because the mock provider and my unit
+ * fixtures used short strings I had written myself.
+ *
+ * The fix is not just a bigger number, it is the right FAILURE SEMANTICS. The
+ * value of a grounded resource is the vetted link; the caption is decoration.
+ * Throwing away a real link because its annotation is thirty characters too long
+ * is a terrible trade. So: reject what is load-bearing (a `ref` outside the
+ * supplied range means the WRONG LINK), normalise what is cosmetic. The prompt
+ * asks for at most 12 words, this enforces it for display, and `whyMax` still
+ * rejects the case where the model clearly answered a different question.
+ *
+ * Cuts on a word boundary — a caption ending mid-word reads as a rendering bug.
+ */
+function condenseWhy(why: string): string {
+  if (why.length <= GROUNDED_LIMITS.whyDisplayMax) return why;
+  const cut = why.slice(0, GROUNDED_LIMITS.whyDisplayMax);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, "") + "…";
+}
 
 /** The hostname, as the resource's source label. Never model-supplied. */
 function hostOf(url: string): string {
@@ -433,10 +470,11 @@ export function validateGroundedDetail(
     // is our bug, not the model's, and guessing a tag would hide it.
     if (!tag) return null;
 
+    const caption = condenseWhy(why);
     const host = hostOf(doc.url);
     resources.push({
       title: doc.title,
-      meta: host ? `${host} · ${why}` : why,
+      meta: host ? `${host} · ${caption}` : caption,
       tag,
       url: doc.url,
       // No `unverified` flag: this URL came out of the curated corpus. The flag's

@@ -114,10 +114,11 @@ You will be given a topic and a numbered list of vetted documents. Return:
    mechanism, not the definition. If there is a common misconception, kill it.
 2. RESOURCES — select the documents from the numbered list that genuinely help
    with THIS topic, ranked most useful first. Reference each by its number. For
-   each one give a short reason ("why") saying what it gives the candidate that
-   the others do not. Select only what is relevant: if only two of the documents
-   are worth reading for this topic, return two. Never pad the list to fill it,
-   and never reference a number that was not provided.
+   each one give a reason ("why") saying what it gives the candidate that the
+   others do not. The "why" is a caption shown under a link, NOT a summary:
+   AT MOST 12 WORDS, no trailing full stop. Select only what is relevant: if
+   only two of the documents are worth reading for this topic, return two. Never
+   pad the list to fill it, and never reference a number that was not provided.
 3. EXERCISES — 2 to 4 from-scratch exercises. Each must be something the
    candidate BUILDS or EXPLAINS from memory, never something they read.
 

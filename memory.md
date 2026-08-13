@@ -575,6 +575,51 @@
 
 ## Bugs hit + fixed (continued)
 
+- **2026-08-13 · Phase 4.5: RAG was 100% broken against the real provider while both
+  test suites were green — because my fixtures didn't look like real model output.**
+  Symptom, reported by the user on the first real run: *every* resource showed the
+  amber UNVERIFIED chip and no links, on a frontend roadmap the corpus covers well.
+  **Diagnosed by reproducing the pipeline stage by stage rather than guessing**
+  (the standing discipline): retrieval was fine — 18 of the user's 20 real topics
+  cleared the 0.62 floor, and the RPC returned the *right* documents ("Event loop and
+  task queues" → the MDN execution-model page, Jake Archibald's talk, the HTML spec).
+  So the failure was downstream. Printing the raw grounded completion showed it
+  immediately:
+
+  ```
+  ref=2  whyLen=223   ref=4  whyLen=212   ref=5  whyLen=206
+  GROUNDED_LIMITS.whyMax = 90     -> validateGroundedDetail returns null
+  ```
+
+  **Root cause: a made-up constant.** I capped the resource caption at 90 characters
+  because that felt like a caption length. Real `gemini-3.5-flash` writes 200–220.
+  So every grounded generation failed validation, was retried (failing identically),
+  and fell through to the ungrounded path — which is *exactly* the Rule 9 behaviour
+  we designed, working perfectly, to hide a total feature failure. No error, no 5xx,
+  no red test: the fallback made the bug invisible.
+
+  **Why neither suite caught it — the part worth remembering.** The mock provider
+  returned `why: "the primary reference"` (21 chars) and my unit fixtures used short
+  strings I had written myself. **Both suites were testing my assumption about the
+  output, not the output.** This is the same class as the Phase 4 single-topic-roadmap
+  bug ("an acceptance test written from the same assumption as the code will happily
+  ratify the bug"), and it is worse here because a *graceful* fallback swallowed the
+  evidence. **A degradation path you cannot distinguish from success is a place bugs
+  go to hide** — that is the general lesson, and it argues for the `source` label
+  being visible in the UI, which is how the user spotted it at all.
+
+  **Fix, in three parts, because raising the number alone would repeat the mistake:**
+  (1) the right **failure semantics** — reject what is load-bearing (a `ref` outside
+  the supplied range means the WRONG LINK), *normalise* what is cosmetic: `whyMax`
+  becomes a generous 400 (a caption that long means the model answered a different
+  question), and `condenseWhy()` trims to 110 chars on a word boundary for display.
+  Throwing away a vetted link because its decoration was 30 characters too long is a
+  terrible trade. (2) The prompt now demands **"AT MOST 12 WORDS"** — models follow
+  explicit word counts far better than "short". (3) **The mock provider now emits
+  ~200-character captions**, so a regression of this class goes red; plus three unit
+  tests pinning the *verbatim* strings from the live response. Verified by re-running
+  the real provider end to end: `ACCEPTED`.
+
 - **2026-08-13 · Phase 4.5: the similarity floor I picked by intuition would have
   grounded backend topics on React documentation.** The RAG threshold started at
   `0.55` — a number that *sounds* strict for a cosine similarity, and is the value

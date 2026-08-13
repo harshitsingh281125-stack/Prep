@@ -219,6 +219,58 @@ describe("validateGroundedDetail — the link never comes from the model", () =>
   });
 });
 
+describe("validateGroundedDetail — real-length model output (regression)", () => {
+  // VERBATIM from a live gemini-3.5-flash response, 2026-08-13. The original
+  // whyMax of 90 rejected all three of these, so every grounded generation fell
+  // through to the ungrounded path and the feature was 100% broken against the
+  // real provider — while the unit suite and the E2E suite were both green,
+  // because their fixtures used short strings I had written myself.
+  const REAL_WHYS = [
+    "Provides the definitive, interactive step-by-step execution trace demonstrating how microtasks completely exhaust their queue before the loop proceeds to the next macrotask, clearing up common edge cases with nested queues.",
+    "Offers the best visual explanation of the rendering pipeline's relationship with the event loop, showing exactly where requestAnimationFrame and style/layout calculations execute relative to tasks and microtasks.",
+    "Translates event loop theory into production engineering by detailing how to break up long tasks, yield to the main thread, and use modern APIs like scheduler.yield to prevent UI responsiveness degradation.",
+  ];
+
+  it("accepts captions of the length the model actually writes", () => {
+    const detail = validateGroundedDetail(
+      grounded({ resources: REAL_WHYS.map((why, i) => ({ ref: i + 1, why })) }),
+      DOCS
+    );
+    // The bug: this was null. A vetted link must not be thrown away because its
+    // decorative caption was thirty characters longer than I guessed.
+    expect(detail).not.toBeNull();
+    expect(detail!.resources).toHaveLength(3);
+    expect(detail!.resources.every((r) => Boolean(r.url))).toBe(true);
+  });
+
+  it("condenses a long caption to fit the resource row, on a word boundary", () => {
+    const detail = validateGroundedDetail(
+      grounded({ resources: [{ ref: 1, why: REAL_WHYS[0] }] }),
+      DOCS
+    );
+    const meta = detail!.resources[0].meta;
+
+    expect(meta.startsWith("react.dev · ")).toBe(true);
+    expect(meta.length).toBeLessThanOrEqual(
+      "react.dev · ".length + GROUNDED_LIMITS.whyDisplayMax + 1
+    );
+    expect(meta.endsWith("…")).toBe(true);
+    // Cut on a word boundary — a caption ending mid-word reads as a render bug.
+    expect(meta).not.toMatch(/\s…$/);
+    expect(meta.slice(0, -1)).toBe(meta.slice(0, -1).trimEnd());
+  });
+
+  it("leaves a caption that already fits completely untouched", () => {
+    const detail = validateGroundedDetail(
+      grounded({ resources: [{ ref: 1, why: "the canonical reference on state identity" }] }),
+      DOCS
+    );
+    expect(detail!.resources[0].meta).toBe(
+      "react.dev · the canonical reference on state identity"
+    );
+  });
+});
+
 describe("validateGroundedDetail — rejections", () => {
   it("rejects a reference past the end of the supplied list", () => {
     // Not clamped to the last document: a model citing #9 of 3 has misunderstood
@@ -263,7 +315,7 @@ describe("validateGroundedDetail — rejections", () => {
     expect(validateGroundedDetail(grounded({ resources: [] }), DOCS)).toBeNull();
   });
 
-  it("rejects a missing or overlong 'why'", () => {
+  it("rejects a missing 'why', or one so long the model answered a different question", () => {
     expect(validateGroundedDetail(grounded({ resources: [{ ref: 1 }] }), DOCS)).toBeNull();
     expect(
       validateGroundedDetail(
