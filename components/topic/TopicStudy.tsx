@@ -1,11 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { SeedResource, TopicDetail, TopicStatus } from "@/lib/seed/types";
 
 const MONO = "'IBM Plex Mono',monospace";
+
+/** Shared style for the two generate buttons in the sidebar panel. */
+function secondaryButton(busy: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    padding: "9px",
+    borderRadius: "8px",
+    font: "inherit",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: busy ? "wait" : "pointer",
+    border: "1px solid var(--accent)",
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    opacity: busy ? 0.7 : 1,
+  };
+}
 
 // Chip color per resource tag (design's tagStyle): Deep/Spec = accent, Talk =
 // amber, else muted.
@@ -17,6 +35,28 @@ function tagColor(tag: SeedResource["tag"]): string {
 
 type SaveState = "idle" | "saving" | "saved";
 
+/**
+ * Why a generation didn't come from the model, in words the user can act on.
+ * Rule 9 says AI never hard-blocks — but "never blocks" is not the same as
+ * "never tell them". A cap they can wait out and a model that returned junk are
+ * different situations, and flattening both into a silent template swap would
+ * make the app quietly less honest than it claims to be.
+ */
+function fallbackNote(reason: string | null | undefined): string {
+  switch (reason) {
+    case "cap":
+      return "Daily AI cap reached — this is the study template. Resets at midnight UTC.";
+    case "provider":
+      return "The model is unreachable right now — this is the study template.";
+    case "invalid":
+      return "The model returned something unusable twice — this is the study template.";
+    case "disabled":
+      return "AI isn't configured — this is the study template.";
+    default:
+      return "This is the study template.";
+  }
+}
+
 export default function TopicStudy({
   roadmapId,
   topicId,
@@ -24,7 +64,7 @@ export default function TopicStudy({
   status,
   weekLabel,
   killCriterion,
-  detail,
+  detail: initialDetail,
   initialNote,
 }: {
   roadmapId: string;
@@ -43,6 +83,66 @@ export default function TopicStudy({
   const [note, setNote] = useState(initialNote);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Phase 4: detail is generated on demand, so it's client state now — a fresh
+  // topic starts null and fills in when the user asks for it.
+  const [detail, setDetail] = useState<TopicDetail | null>(initialDetail);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailNote, setDetailNote] = useState<string | null>(null);
+  const [cardsBusy, setCardsBusy] = useState(false);
+  const [cardsNote, setCardsNote] = useState<string | null>(null);
+
+  // Reasoning tier — mental model, resources, exercises.
+  async function generateDetail() {
+    if (detailBusy) return;
+    setDetailBusy(true);
+    setDetailNote(null);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/detail`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setDetailNote(data?.error ?? "Could not generate this topic.");
+        return;
+      }
+      setDetail(data.detail);
+      setDetailNote(data.source === "ai" ? null : fallbackNote(data.reason));
+    } catch {
+      setDetailNote("Network error — nothing was generated.");
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  // Classification tier — the cheap model, because this call happens per topic
+  // across every roadmap while detail generation happens once.
+  async function generateCards() {
+    if (cardsBusy) return;
+    setCardsBusy(true);
+    setCardsNote(null);
+    try {
+      const res = await fetch("/api/recall/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCardsNote(data?.error ?? "Could not generate cards.");
+        return;
+      }
+      const suffix = data.source === "ai" ? "" : ` (${fallbackNote(data.reason).toLowerCase()})`;
+      setCardsNote(
+        data.created === 0
+          ? `No new cards — this topic already has every question we'd add${suffix}`
+          : `Added ${data.created} card${data.created === 1 ? "" : "s"} to your recall queue${suffix}`
+      );
+      router.refresh(); // the sidebar due-count badge recomputes from real rows
+    } catch {
+      setCardsNote("Network error — no cards were added.");
+    } finally {
+      setCardsBusy(false);
+    }
+  }
 
   // Kill-criterion checkbox → mastery (Rule 16: mastery is earned, only via this
   // explicit check; unchecking reverts to in_progress — it was clearly started).
@@ -93,7 +193,6 @@ export default function TopicStudy({
 
   const resources = detail?.resources ?? [];
   const exercises = detail?.exercises ?? [];
-  const model = detail?.model ?? "No mental model seeded for this topic yet.";
 
   return (
     <div>
@@ -122,32 +221,117 @@ export default function TopicStudy({
             <div style={{ fontSize: "22px", fontWeight: 600, letterSpacing: "-0.015em" }}>{topicName}</div>
           </div>
 
-          {/* Mental model */}
-          <div
-            style={{
-              background: "var(--accent-soft)",
-              border: "1px solid var(--accent-line)",
-              borderRadius: "12px",
-              padding: "18px 20px",
-              marginBottom: "24px",
-            }}
-          >
+          {/* No detail yet — the explicit-generation empty state (Phase 4).
+              A generated roadmap ships topics with no content on purpose, so
+              nothing spends an AI call until the user asks for one. */}
+          {!detail && (
             <div
+              data-testid="detail-empty"
               style={{
-                fontFamily: MONO,
-                fontSize: "11px",
-                color: "var(--accent)",
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-                marginBottom: "8px",
+                border: "1px dashed var(--border)",
+                borderRadius: "12px",
+                padding: "36px 28px",
+                marginBottom: "24px",
+                textAlign: "center",
               }}
             >
-              Mental model
+              <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "6px" }}>
+                No study material yet
+              </div>
+              <div
+                style={{
+                  fontSize: "13.5px",
+                  color: "var(--text-muted)",
+                  lineHeight: 1.6,
+                  marginBottom: "18px",
+                  maxWidth: "460px",
+                  margin: "0 auto 18px",
+                }}
+              >
+                Generate the mental model, ranked resources and from-scratch exercises for{" "}
+                <b>{topicName}</b>. One AI call, and it&apos;s saved to this topic.
+              </div>
+              <button
+                onClick={generateDetail}
+                disabled={detailBusy}
+                data-testid="generate-detail"
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "9px",
+                  border: "1px solid var(--accent)",
+                  background: detailBusy ? "var(--accent-soft)" : "var(--accent)",
+                  color: detailBusy ? "var(--accent)" : "oklch(0.99 0 0)",
+                  fontSize: "13.5px",
+                  fontWeight: 600,
+                  font: "inherit",
+                  cursor: detailBusy ? "wait" : "pointer",
+                }}
+              >
+                {detailBusy ? "Generating…" : "Generate with AI"}
+              </button>
+              {detailNote && (
+                <div
+                  data-testid="detail-note"
+                  style={{ fontSize: "12.5px", color: "var(--amber)", marginTop: "12px" }}
+                >
+                  {detailNote}
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: "14.5px", lineHeight: 1.6 }}>{model}</div>
-          </div>
+          )}
+
+          {/* Mental model */}
+          {detail && (
+            <div
+              style={{
+                background: "var(--accent-soft)",
+                border: "1px solid var(--accent-line)",
+                borderRadius: "12px",
+                padding: "18px 20px",
+                marginBottom: "24px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  marginBottom: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: "11px",
+                    color: "var(--accent)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  Mental model
+                </div>
+                {/* Where this content came from. Shown, not hidden — a template
+                    standing in for a failed generation is information the user
+                    is entitled to. */}
+                <span
+                  data-testid="detail-source"
+                  style={{ fontFamily: MONO, fontSize: "10.5px", color: "var(--text-faint)" }}
+                >
+                  {detail.source === "ai" ? "ai-generated" : "template"}
+                </span>
+              </div>
+              <div style={{ fontSize: "14.5px", lineHeight: 1.6 }}>{detail.model}</div>
+              {detailNote && (
+                <div data-testid="detail-note" style={{ fontSize: "12.5px", color: "var(--amber)", marginTop: "10px" }}>
+                  {detailNote}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Resources */}
+          {detail && (
           <div style={{ marginBottom: "24px" }}>
             <SectionLabel>Resources · ranked</SectionLabel>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -171,6 +355,29 @@ export default function TopicStudy({
                     <div style={{ fontSize: "14px", fontWeight: 500 }}>{r.title}</div>
                     <div style={{ fontSize: "12px", color: "var(--text-faint)", fontFamily: MONO }}>{r.meta}</div>
                   </div>
+                  {/* Phase 4: generated resources are model-recalled and nothing
+                      here can check them. Marked until Phase 4.5 grounds them
+                      against the curated corpus. */}
+                  {r.unverified && (
+                    <span
+                      data-testid="unverified-chip"
+                      title="Generated from the model's memory — not checked against a source. Phase 4.5 grounds these on a curated corpus."
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: "10.5px",
+                        color: "var(--amber)",
+                        background: "var(--amber-soft)",
+                        border: "1px solid var(--amber)",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        flex: "0 0 auto",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Unverified
+                    </span>
+                  )}
                   <span
                     style={{
                       fontFamily: MONO,
@@ -190,8 +397,10 @@ export default function TopicStudy({
               ))}
             </div>
           </div>
+          )}
 
           {/* Exercises */}
+          {detail && (
           <div style={{ marginBottom: "24px" }}>
             <SectionLabel>From scratch</SectionLabel>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -226,6 +435,7 @@ export default function TopicStudy({
               ))}
             </div>
           </div>
+          )}
 
           {/* Notes (autosave) */}
           <div>
@@ -318,6 +528,68 @@ export default function TopicStudy({
               }}
             >
               {mastered ? "Mastered — you can defend this." : "Check only when you can do it cold, no notes."}
+            </div>
+          </div>
+
+          {/* AI actions (Phase 4). Two buttons, two tiers, on purpose: study
+              material runs on the reasoning tier (rare, high-value) and recall
+              cards on the classification tier (frequent, cheap). Keeping them
+              separate is also what keeps each press to exactly one call. */}
+          <div
+            style={{
+              background: "var(--panel)",
+              border: "1px solid var(--border)",
+              borderRadius: "12px",
+              padding: "16px 18px",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: MONO,
+                fontSize: "11px",
+                color: "var(--text-faint)",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                marginBottom: "10px",
+              }}
+            >
+              Generate
+            </div>
+
+            {detail && (
+              <button
+                onClick={generateDetail}
+                disabled={detailBusy}
+                data-testid="regenerate-detail"
+                style={secondaryButton(detailBusy)}
+              >
+                {detailBusy ? "Generating…" : "Regenerate study material"}
+              </button>
+            )}
+
+            <button
+              onClick={generateCards}
+              disabled={cardsBusy}
+              data-testid="generate-cards"
+              style={{ ...secondaryButton(cardsBusy), marginTop: detail ? "8px" : 0 }}
+            >
+              {cardsBusy ? "Generating…" : "Generate recall cards"}
+            </button>
+
+            {cardsNote && (
+              <div
+                data-testid="cards-note"
+                style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "10px", lineHeight: 1.5 }}
+              >
+                {cardsNote}
+              </div>
+            )}
+
+            <div style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: "10px", lineHeight: 1.5 }}>
+              Each press spends one call from your daily cap.{" "}
+              <Link href="/usage" style={{ color: "var(--accent)" }}>
+                See usage
+              </Link>
             </div>
           </div>
         </div>

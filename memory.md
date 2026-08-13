@@ -12,6 +12,94 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-08-08 · Phase 4 `ai_usage` is the one user-owned table the user may NOT
+  write — RLS is SELECT-only, inserts go through the service role.** Every other
+  table in this schema carries the flat `for all using (user_id = auth.uid())`
+  policy. `ai_usage` deliberately does not. **Why:** the hard daily cap (Rule 3) is a
+  `COUNT` of these rows, so a `for all` policy would let any signed-in browser run
+  `DELETE /rest/v1/ai_usage` with the **anon** key and reset its own cap to zero —
+  the cap would be advisory, which is precisely what Rule 3 says it must not be. So
+  the owner gets `for select` only (they need to read their own readout), and the
+  gateway inserts via `lib/supabase/admin.ts`, which bypasses RLS by design. **The
+  generalisation, one step past Phase 2/3's rule-of-thumb:** a row can be *about* a
+  user without being *theirs to write*. Ownership decides who may READ; whether the
+  value enforces a product rule decides who may WRITE. **The service-role client is
+  typed against only `ai_usage`** (not `any`), so reaching for it to dodge an
+  inconvenient RLS check on another table is a compile error rather than a
+  code-review catch, and `import "server-only"` makes leaking it into a client
+  bundle a build failure. Pinned by E2E AI-17/18/19/20 and manual SEC-03/04/05.
+
+- **2026-08-08 · Phase 4: the model writes CONTENT, not CONTRACT.** The roadmap
+  generator is never asked for `weeks_count`, hours-per-week, or week numbers — the
+  JSON schema doesn't contain those fields at all. They're computed server-side from
+  the user's onboarding answers (`planContract()`) and stamped onto the validated
+  result; week numbers come from array position. **Why:** "8 weeks at 10h" is a
+  promise the user made to themselves, and the entire Phase 3 pace dashboard divides
+  by exactly those numbers — if the model returned 6 weeks because it felt tidier,
+  every pace figure downstream would silently be measuring against a plan the user
+  never chose. **Validating** the numbers would only *catch* that; **not asking** for
+  them makes it impossible. Cheap side benefit: fewer output tokens. It is also what
+  makes the seeded fallback a genuine drop-in — both paths produce a plan with the
+  same contract, so falling back can't change the shape of the user's plan.
+
+- **2026-08-08 · Phase 4: topic detail is generated on demand, and roadmaps ship
+  with NO seeded detail.** Phase 1 pre-filled every topic's `detail` from the
+  catalog at creation time. Phase 4 sets it to `null` on **both** the AI and the
+  seed path; the Topic screen shows an empty state with an explicit **Generate with
+  AI** button. **Why not auto-generate on first open:** a roadmap has 15–25 topics,
+  so browsing one would spend 15–25 calls and exhaust the 25/day cap before the user
+  studied anything — and it would put an AI call inside a server-component render.
+  **Why not keep the seeded detail as a starting point:** then the AI path and the
+  fallback would produce visibly different trees (pre-filled vs empty), the fallback
+  would stop being a drop-in, and there'd be no way to see what generation actually
+  added. The seeded template didn't disappear — it moved to `lib/seed/detail.ts` and
+  became the Rule 9 fallback for `/api/topics/[id]/detail`, which is a more useful
+  job than being a default nobody asked for.
+
+- **2026-08-08 · Phase 4: one `ai_usage` row per provider DISPATCH, not per user
+  action — and failures are metered too.** A generation that came back malformed,
+  was retried, and then fell back to the seed writes **two** rows (`status`
+  `invalid` then `ok`/`invalid`, `attempts` 1 then 2). **Why per dispatch:** the cap
+  exists to protect the provider's quota, and the provider counts requests, not
+  intentions. **Why meter failures:** metering only successes would make the cap
+  under-count *exactly when a broken model is burning the most quota* — the moment
+  it matters most. It also makes the fallback rate a visible number on /usage rather
+  than an invisible degradation. Consequence handled deliberately: the cap is
+  re-checked **before the retry**, so a user sitting on the boundary can't step over
+  it by way of a malformed first response (unit-tested).
+
+- **2026-08-08 · Phase 4: `cost_usd` stores what was ACTUALLY charged; the paid-tier
+  figure is derived at read time and never stored.** On the free tier that column is
+  `0` on every row. The "$/roadmap" and "projected cost" numbers on /usage are
+  computed in `lib/ai/cost.ts` from the token columns × a rate card, at render time.
+  **Why:** same reasoning as Phase 3 deriving roadmap status — a stored projection
+  goes stale the instant the rate card or the model binding changes, and a column
+  named `cost_usd` holding a number nobody was charged is a fiction waiting to be
+  quoted in an interview. The readout shows both side by side and says in prose that
+  the charged column is $0.00. **This is the honest form of the "cut inference cost
+  X%" bullet:** a projection computed from real token counts, never a claimed
+  free-tier saving. (`AI_BILLING_MODE=paid` switches `cost_usd` to the computed cost
+  once billing is real.)
+
+- **2026-08-08 · Phase 4: the mock provider is a first-class adapter, and the E2E
+  suite runs against it.** `AI_PROVIDER=mock` selects a deterministic adapter with
+  injectable failure modes (`AI_MOCK_MODE=ok|malformed|malformed-once|error`).
+  **Why it isn't a test hack:** (1) Architecture §5 always planned a local-dev
+  provider so the app is exercisable with AI off; (2) the retry and fallback paths
+  are otherwise only reachable by getting lucky with a bad generation, so the QA
+  matrix could assert they *exist* but never that they *work*; (3) a suite that goes
+  red because a third party is down teaches you nothing — which stopped being
+  hypothetical on day one of this phase (see the bug log). The mock still goes
+  through the entire gateway, so caps/validation/retry/metering are all genuinely
+  under test; only the vendor wire format isn't, and that's what manual suite LIVE
+  is for. It reports estimated token counts for text it really handled and is priced
+  at $0, so it can never invent spend in the readout.
+  **Related:** `AI_DAILY_CALL_CAP` was made env-overridable (default 25) because a
+  full E2E run makes well over 25 dispatches and would otherwise exhaust its own cap
+  partway through, turning every later spec red for a reason unrelated to what it
+  tests. The cap's *logic* stays exactly covered by unit tests; its *live* behaviour
+  is manual suite CAP.
+
 - **2026-08-08 · Phase 3 pace model: whole elapsed weeks since `created_at`, not a
   continuous fraction and not `target_date`.** Three options were on the table for the
   dashboard's denominator ("hours you should have logged by now"). **Decision: whole
@@ -158,6 +246,12 @@
   this shell; Management API blocks DDL — see the two bug entries below).
 
 - **2026-07-28 · v1 AI models: Google Gemini free tier, tier-routed behind the gateway.**
+  *(Historical record of the decision as taken. **Refined by the 2026-08-08/08-12
+  entries above** — the concrete ids are `gemini-3.5-flash` / `gemini-3.5-flash-lite`
+  / `gemini-embedding-001`; "recall grading" below never shipped as an AI call, the
+  frequent classification-tier call is recall-CARD generation; and the free tier
+  proved unreliable, not merely rate-limited. Read this entry as "what we decided
+  then", not as current state.)*
   Brainstormed cost vs quality for the Phase 4 model pick. **Decisions:** (1) **v1 uses
   Google Gemini's free tier** across all bindings — `reasoning` = **Gemini Flash**
   (roadmap gen + topic detail), `classification` = **Gemini Flash-Lite** (recall
@@ -268,6 +362,7 @@
   for that server layer.
 
 - **2026-07-24 · AI is integrated in v1, but the model/provider is an open decision.**
+  *(Historical. **Closed 2026-07-28** — Gemini; built and live in Phase 4.)*
   Why: the *pick* (free/cheap vs Claude API) is deferred to a brainstorm, but the
   *architecture* is not. Everything routes through a provider-agnostic **AI Gateway**
   (`complete({ tier, … })`), so swapping models is a config change, not a rewrite.
@@ -284,8 +379,17 @@
 
 ## Open questions (decide deliberately)
 
-- **[Phase 4] v1 model/provider per tier** — the AI brainstorm. Cheapest option
-  that clears the roadmap-JSON quality bar; verify free-tier limits + a spend cap.
+- ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28, CONFIRMED
+  AGAINST THE LIVE API 2026-08-08.** `reasoning` = `gemini-3.5-flash`,
+  `classification` = `gemini-3.5-flash-lite` (both verified present via
+  `models.list` before a line of adapter code was written). Bound in
+  `lib/ai/config.ts`, the only file naming a model. **Two things learned during the
+  build that change the framing:** (a) the free tier is *unreliable*, not just
+  rate-limited — see the outage in the infra log — so the honest claim is "runs at
+  ~$0 with a paid-tier upgrade that's a config edit", not "free forever"; (b) if
+  billing is enabled, Google's docs say paid-tier prompts/responses are **not** used
+  to improve their products, which removes one of the two honesty caveats this
+  decision originally carried.
 - ~~**Scheduling algorithm cadence**~~ — **SETTLED 2026-08-06:** the design's fixed
   +1/+4/+14/+30 ladder as the backbone **plus** an SM-2 ease factor that stretches or
   compresses each rung (past the top rung it becomes pure `prevInterval × ease`). A miss
@@ -293,8 +397,26 @@
   intervals contradict the cadence the UI advertises, and because Prep's binary
   self-grade collapses SM-2's 0–5 ease formula anyway. See the settled-decisions entry
   above + `lib/recall/scheduler.ts`.
-- Roadmap JSON schema final shape (fields the generator must return).
-- Onboarding question wording / weak-area taxonomy.
+- ~~Roadmap JSON schema final shape (fields the generator must return).~~ —
+  **SETTLED 2026-08-08:** `{ title, subtitle, weeks: [{ title, killCriterion,
+  topics: string[] }] }` — and, more importantly, what it *deliberately omits*: no
+  week numbers, no hours, no week count. Those are the user's contract, computed
+  server-side. See `ROADMAP_SCHEMA` + `validateRoadmap` in `lib/ai/validate.ts` and
+  the "content, not contract" decision above.
+- **Onboarding question wording / weak-area taxonomy / role scope** — *sharpened
+  2026-08-12, deliberately deferred past Phase 4.* The role options are all
+  frontend-flavoured, and the weak-area options ("Async JS", "React internals") are
+  frontend-specific. **The constraint that makes this more than a copy change:** the
+  seeded fallback catalog (`lib/seed/catalog.ts`) IS a frontend curriculum, lifted
+  from the design source. Add "SDE-2 · Backend" to the role list and Rule 9 quietly
+  breaks — an AI failure hands that user a *frontend* roadmap and calls it their
+  plan. So the three moves are coupled: opening up roles requires either
+  (a) role-dependent weak-area options **plus** honest labelling when the frontend
+  fallback fires for a non-frontend role, or (b) authoring real per-role catalogs,
+  which is weeks of curriculum content and a phase of its own. Decision 2026-08-12:
+  **leave it**, revisit in Phase 5 polish. *(The related weak-area **weighting** bug
+  — the plan covering only the picked areas — was a separate defect and is fixed;
+  see the bug log.)*
 - Product name (still "Prep", a placeholder).
 - When to revisit the v2 code-sandbox cut.
 - **[Phase 4.5] RAG corpus taxonomy + seed contents** — the `topic_area` tag set and
@@ -333,6 +455,25 @@
 
 ## Deploy / infra facts
 
+- **2026-08-08 · Gemini's free tier returned 429 "prepayment credits are depleted"
+  for the whole first half of Phase 4 — a Google-side incident, not our config.**
+  Every model (2.0 through 3.6, and embeddings) returned the same 429
+  `RESOURCE_EXHAUSTED` on a project with **no billing attached and zero usage**.
+  `models.list` returned 200, so the key was valid — only *billed* operations were
+  blocked, which is what identified it as a billing-state problem rather than a code
+  or auth one. Google's own forums carried multiple reports of the same thing on
+  confirmed free-tier projects dated 2026-08-03…08-07, including one user who added
+  a payment method and still saw it; no staff response, no workaround. It cleared on
+  its own partway through the build (verified by re-probing: HTTP 200). **What we
+  did with the time rather than waiting:** built the whole gateway provider-agnostic
+  as planned, and added the mock adapter — so ~85% of the phase was unaffected. **The
+  interview value is real and unplanned:** Rule 9 ("AI must never hard-block a flow")
+  stopped being a design principle and got exercised against an actual multi-day
+  provider outage, and the E2E suite was deliberately built so that *not one
+  assertion depends on the provider being up*. **Practical lesson: verify a
+  provider's health with a real call before building against it — a dashboard that
+  says "Free" is a claim, a 200 is evidence.**
+
 - **2026-07-27 · Phase 0 shipped to Vercel.** Repo:
   github.com/harshitsingh281125-stack/Prep (personal account; pushed over HTTPS with
   a repo-scoped fine-grained PAT via a one-off token URL so nothing landed in
@@ -344,6 +485,140 @@
   signup + profiles trigger + auth gate all verified against the live origin.
 
 ## Bugs hit + fixed (continued)
+
+- **2026-08-08 · Phase 4: the Recall screen congratulated users on an empty deck —
+  a vanity metric introduced by accident.** Symptom: after Phase 4, six Phase 2 E2E
+  tests failed waiting for recall cards that never rendered. **Reproduced before
+  touching app code** (the standing discipline): probed the Gemini endpoint directly
+  and got **HTTP 200** — the provider had recovered mid-build, so roadmaps were now
+  *genuinely AI-generated*, with the model's own topic names. `RECALL_SEED` is keyed
+  by **catalog** topic name, so nothing matched and the roadmap correctly started
+  with an empty deck (intended — generating cards for 15–25 topics at onboarding
+  would blow the daily cap). So the test failures were the *documented consequence*,
+  not a defect. **But probing what a user would actually see exposed a real one:**
+  with zero cards, `/recall` rendered *"Queue clear. Nothing is due right now. Don't
+  cram ahead — the spacing is the point."* — telling someone they were **caught up
+  on a retention loop they had never started**. Before Phase 4 that state was
+  unreachable (onboarding always seeded a queue), so the copy had never been wrong.
+  Fix: the page now counts total cards, not just due ones, and renders a distinct
+  **"No recall cards yet"** empty state pointing at the Generate button; "Queue
+  clear" is reserved for `totalCards > 0`. **Why it matters beyond the copy:** Rule
+  19 bans vanity metrics, and this was one — a green "you're done" for an empty
+  deck — created not by adding a metric but by an existing message quietly becoming
+  reachable in a new state. **Lesson: when a feature makes a previously-impossible
+  state possible, audit the messages that assumed it couldn't happen.** Fixture also
+  hardened (`generateCardsForFirstTopic` throws a self-describing error) so an empty
+  queue can never again masquerade as a rendering failure.
+
+- **2026-08-08 · Phase 4: four security tests passed by never running — reading the
+  session from the wrong store.** The `ai_usage` RLS cases (can a user delete/forge
+  their own usage rows and reset the cap?) fetched the Supabase access token from
+  **`localStorage`**, found nothing, and `test.skip`'d. The suite reported **"41
+  passed, 4 skipped"** — green. Root cause: this app uses **`@supabase/ssr`** (chosen
+  in Phase 0 over the deprecated auth-helpers) whose entire point is a **cookie**-based
+  session the server can read; there was never anything in localStorage to find. Fix:
+  read the `sb-<ref>-auth-token` cookie, rejoin its `.0`/`.1` **chunks** in name
+  order, strip the `base64-` prefix and decode. **Why it's worth logging:** a skip is
+  a far more dangerous failure than a red test — the four cases guarding the one
+  table whose writability decides whether the daily cap is real at all were silently
+  not running, and nothing in the summary line said so. **Lesson: a conditional
+  `skip()` in a security test is a hole with a green tick on it — assert the
+  precondition instead, or make the skip loud.**
+
+- **2026-08-12 · Phase 4: the E2E suite silently spent 26 real Gemini calls while
+  reporting green.** `playwright.config.ts` sets `AI_PROVIDER=mock` on its
+  `webServer.env` — but it also had `reuseExistingServer: true` and defaulted to the
+  **dev port, 3001**. So whenever a `npm run dev` was already running (i.e. normal
+  working conditions), Playwright reused *that* server, which carries the real
+  `GEMINI_API_KEY`, and the mock env was never applied. Found only because the user
+  noticed token usage; confirmed by grouping `ai_usage` by model — **24
+  `gemini-3.5-flash` + 2 `gemini-3.5-flash-lite`** on the day of the first run.
+  **Fix, in three parts, because one wasn't enough:** (1) the suite now runs on a
+  **dedicated port (3101)**, so the test server can never be the dev server;
+  (2) `reuseExistingServer: false` — the saved startup seconds were worth far less
+  than knowing which env the server under test has; (3) an `assertMockProvider()`
+  guard in `beforeAll` of every spec that generates, which reads `/api/usage` and
+  **refuses to run** if `provider !== "mock"`. Verified after: a full run is 43 mock
+  dispatches and **zero** Gemini. **Why it's worth logging beyond the money:** this
+  is a failure mode with no red test and no error — the suite was *more* green for
+  being misconfigured, because a real provider answers just as well as a fake one.
+  **Lesson: a test that costs money when it's misconfigured has to fail loudly on
+  the misconfiguration; correctness of the result is not evidence of correctness of
+  the setup.** Related: `reuseExistingServer` had already burned a debugging cycle
+  the same week (below) — it's now off for good.
+
+- **2026-08-12 · Phase 4: month-scale timelines would have silently built plans a
+  quarter the requested length.** Adding "4 months" / "6 months" to the timeline
+  options exposed that both generators parsed the answer with a **first-integer-wins**
+  regex (`String(v).match(/\d+/)`) — so `"6 months"` became a **6-week** plan. Nothing
+  would have errored: the user gets a plan, and the Phase 3 dashboard then measures
+  them against it forever, reporting them wildly ahead of a schedule they never
+  chose. Fixed by parsing the **unit** (`parseTimelineWeeks`, months × 4). **Two
+  structural fixes came with it:** (1) the parser was **duplicated** in
+  `lib/seed/generate.ts` and `lib/ai/validate.ts`, kept in step only by a unit test
+  asserting they agreed — both now call one function in `lib/seed/answers.ts`, since
+  one implementation beats a test that catches two from drifting; (2) added a
+  **`MAX_WEEKS = 26` clamp**, because `timeline` arrives in the POST body and the
+  route validates its *shape*, not its membership in the option list — `"9999 weeks"`
+  would otherwise have asked the model for 9999 weeks and inserted 9999 weeks of rows
+  in one request. **Lesson: when an enum of options grows a new UNIT, the parser is
+  the thing to check first — "first number in the string" is correct right up until
+  it silently isn't.**
+
+- **2026-08-12 · Phase 4: weak-area options now follow the role, and "Not sure" is a
+  first-class answer.** The step-5 options were one fixed frontend list regardless of
+  the role picked in step 1, so a fullstack candidate chose between six frontend
+  topics. Now `weakAreasForRole()` returns a per-role list (unknown role → the
+  frontend default). **Deliberately NOT done:** adding roles the seeded catalog can't
+  serve — see the open-questions entry; the fullstack list does name a couple of areas
+  (databases, APIs) the catalog has no block for, which degrades gracefully because
+  `orderBlocks()` simply matches nothing and falls back to natural order.
+  **"Not sure" added** as an always-last, **mutually exclusive** option: not knowing
+  where you're weak is a normal starting state, and forcing a guess would front-load
+  the whole plan around that guess. It's stripped by `declaredWeakAreas()` before
+  either generator sees it, so it means the same thing everywhere — "nothing to
+  front-load, produce a balanced plan". **The non-obvious consequence, handled:**
+  changing the role after picking weak areas leaves a selection that is no longer a
+  valid option, and the server would reject it with a baffling "Pick at least one weak
+  area" — so the wizard clears the picks when the role changes.
+
+- **2026-08-12 · Phase 4: the generator built single-topic roadmaps — my prompt, not
+  the model.** The user reported that whatever weak areas they picked, the roadmap
+  covered *only* those. Cause was one line in `SYSTEM_ROADMAP`: *"Front-load the
+  candidate's weak areas into the earliest weeks. **That is the single most important
+  property of a good plan here.**"* The model did exactly as told and filled every
+  week with the declared weak areas. **Why it's a real defect, not a preference:** a
+  prep plan that drills one area and ignores the rest gets you rejected on the parts
+  it skipped — the plan is actively worse than a balanced one, so "it followed the
+  prompt" is no defence. **Fix:** weak areas are now stated as a **weighting, not the
+  syllabus** — an explicit "cover the whole role" rule, plus concrete proportions the
+  model can follow (4+ weeks: at most half dominated by weak areas; ≤3 weeks: at
+  least one week outside them). **Two things this exposed beyond the prompt:**
+  (a) the onboarding copy *"Where are you weakest? Pick all that apply."* promised
+  exactly the behaviour that turned out to be wrong, so the question was corrected
+  and given a hint line ("You'll still get a full plan — these just get more time,
+  earlier") — a question that misdescribes what it controls is a product bug, not a
+  wording nit; (b) **my own QA case reinforced the defect** — LIVE-03 originally read
+  "the earliest weeks are visibly about system design, fail if not", which a
+  single-topic roadmap passes. It now fails in *both* directions. **Lesson: an
+  acceptance test written from the same assumption as the code will happily ratify
+  the bug** — and prompt regressions are invisible to type checkers, unit tests and
+  E2E alike, so they need a human-read case with a failure condition on each side.
+  *(Note the seed fallback never had this bug: `orderBlocks()` front-loads matching
+  blocks and then appends the rest, so it always covered the catalog.)*
+
+- **2026-08-08 · Phase 4 (harness, not app): a stale dev server made two config
+  fixes look like they did nothing.** After making `AI_DAILY_CALL_CAP` env-overridable
+  and raising it for the test server, the suite *still* failed with `reason: cap`.
+  Cause: `playwright.config.ts` sets `reuseExistingServer: true`, and a `next-server`
+  from the first run was still listening on 3001 — so every subsequent run reused a
+  process started **before** `AI_PROVIDER`/`AI_DAILY_CALL_CAP` existed, and neither
+  env var was ever read. Next.js only reads env at startup, so no amount of config
+  editing could have helped. Fix: kill the orphan, re-run, 51/51 green. **Lesson:
+  with `reuseExistingServer`, a config change that has "no effect" is more likely to
+  be a process you didn't restart than a config that doesn't work** — check what's
+  actually listening on the port before editing anything else. Documented in
+  playwright.config.ts and tests/README.md.
 
 - **2026-08-08 · Phase 3: floating-point rounding told a user who hit their target
   exactly that they were BEHIND PACE.** Symptom: the unit test asserting the 0.8
@@ -446,6 +721,40 @@
   code bug" interview story.
 
 ## Verified subsystems (explain-cold ready)
+
+- **2026-08-12 · Phase 4 AI Gateway + real generation — QA gate closed, verified
+  end-to-end.** Vitest **165/165** (25 schema validation incl. the "model writes
+  content not contract" assertions; 18 cost/projection incl. cached-tokens-as-subset
+  and $/roadmap charging retries to the roadmap; 20 gateway incl. cap-before-dispatch,
+  the retry that must not cross the cap, fail-closed on an unreadable usage table, and
+  provider errors deliberately not retried; 19 answer parsing incl. months→weeks and
+  the MAX_WEEKS clamp; 6 seed-detail fallback; plus 77 Phase 1–3, no regressions) ·
+  Playwright **51/51** (20 AI: all four routes anon-blocked, ownership 404 before any
+  spend, cross-user generation blocked, the Rule 9 flow-completes guarantee, detail
+  persistence, card idempotency, `/api/usage` coherence, and the four `ai_usage` RLS
+  cases) · **full manual pass green — all 76 cases**, and the awkward ones were
+  genuinely run rather than eyeballed: the cap suite (set to 2, restart, watch a real
+  generation get refused *and still return content*), all four `AI_MOCK_MODE` failure
+  injections including `malformed-once` proving the retry recovers invisibly, and the
+  browser-console attempts to DELETE/INSERT one's own `ai_usage` rows.
+  **Three real bugs found during the build** (all logged above): the E2E suite quietly
+  spending 26 real Gemini calls while reporting green, the generator building
+  single-topic roadmaps because my prompt told it to, and month-scale timelines
+  parsing as weeks.
+  **What is now demoable:** onboard with real answers → a genuinely generated,
+  schema-valid roadmap of exactly the length and budget you chose → open a topic,
+  press Generate → real study material with unverified-flagged resources → generate
+  its recall cards on the cheap tier → `/usage` shows tokens, cache hit-rate,
+  fallback rate and $/roadmap with charged-vs-projected side by side → then comment
+  out the API key, restart, and watch every single flow still work on seeded content.
+  **The explain-cold claims this backs:** why `ai_usage` is the one user-owned table
+  the user may not write (the cap is a COUNT of those rows, so a `for all` policy
+  makes it self-resettable) and the sharpened rule it produced — *ownership decides
+  who may READ; whether the value enforces a product rule decides who may WRITE*; why
+  the model is never asked for the plan's contract; why the retry is
+  retry-on-malformed only and is re-checked against the cap; why the cost readout
+  separates charged from projected; and why the E2E suite runs against a mock
+  provider on its own port.
 
 - **2026-08-08 · Phase 3 honest progress dashboard — QA gate closed, verified
   end-to-end.** Vitest **77/77** (53 progress: week-elapsed flooring + cap, the pace

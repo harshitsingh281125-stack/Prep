@@ -96,9 +96,18 @@ AI-powered surfaces in v1:
    (Phase 4.5) against a curated, embedded corpus so links are real/vetted, not
    hallucinated; mental-model + exercises stay pure generation. See
    [Architecture.md §5b](./Architecture.md).
-3. **Recall grading (assist)** — optional cheap-model check on short free-text
-   recall answers ("close enough is a miss"). Classification tier. Self-grade
-   always remains the fallback so the app works even with AI off.
+3. **Recall-card generation** — active-recall questions derived per topic.
+   Classification tier: it's the frequent, low-value call, so it gets the cheap
+   model (see the cost-routing note in [phases.md](./phases.md)). Generated on
+   demand from the Topic screen; falls back to seeded questions.
+
+   *(Originally listed here as "recall grading (assist)" — a cheap-model check on
+   free-text answers. **Not built, and deliberately so.** Prep self-grades
+   **binary** (Got it / Missed) by product design, so there is no free text to
+   grade. More importantly, Rule 17 — "close enough is a miss" — is a rule about
+   the user being honest with themselves; handing it to a model that is
+   structurally inclined to be generous would undermine the one thing the recall
+   loop exists to enforce.)*
 
 **Guardrails (non-negotiable from day 1):**
 - All AI calls go through **auth-gated server routes** — no public/unauthenticated AI endpoint.

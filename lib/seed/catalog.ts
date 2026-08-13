@@ -155,9 +155,94 @@ export const CATALOG: CatalogBlock[] = [
 export type OnboardingStep = {
   id: "role" | "bar" | "timeline" | "hours" | "weak";
   q: string;
+  /** Optional sub-line under the question, for setting expectations about what it controls. */
+  hint?: string;
   options: string[];
   multi?: boolean;
 };
+
+// ---------------------------------------------------------------------------
+// Weak areas, per role (Phase 4).
+//
+// "Where are you weakest?" used to offer one fixed frontend list regardless of
+// the role picked in step 1 — so a fullstack candidate was asked to choose
+// between six frontend topics. The options now follow the role.
+//
+// What this deliberately does NOT do: add roles the seeded fallback can't serve.
+// The catalog above is a frontend curriculum, so a "Backend" role would mean an
+// AI failure hands that user a frontend plan (Rule 9 breaking quietly). The role
+// list is unchanged and that constraint is recorded in memory.md.
+//
+// The fullstack list does name a few areas the catalog has no block for
+// (databases, APIs). That degrades gracefully rather than breaking: orderBlocks()
+// simply matches nothing for them and falls back to natural catalog order, and
+// the AI path — which is the normal path — handles them properly.
+// ---------------------------------------------------------------------------
+
+/** Picking this means "no declared weak areas" — a balanced plan, nothing front-loaded. */
+export const NOT_SURE = "Not sure";
+
+const WEAK_AREAS_BY_ROLE: Record<string, string[]> = {
+  "SDE-2 · Frontend": [
+    "Async JS",
+    "Browser & rendering",
+    "React internals",
+    "Frontend system design",
+    "Live coding speed",
+    "Behavioral",
+  ],
+  "SDE-2 · Fullstack": [
+    "Async JS",
+    "React internals",
+    "APIs & backend fundamentals",
+    "Databases & SQL",
+    "End-to-end system design",
+    "Live coding speed",
+    "Behavioral",
+  ],
+  "Senior · Frontend": [
+    "Async JS",
+    "Browser & rendering",
+    "React internals",
+    "Frontend system design",
+    "Performance & Core Web Vitals",
+    "Live coding speed",
+    "Behavioral & leadership",
+  ],
+  "Staff · Frontend": [
+    "Frontend system design at scale",
+    "Architecture & trade-offs",
+    "Performance & Core Web Vitals",
+    "Technical strategy & roadmapping",
+    "Cross-team influence",
+    "Live coding speed",
+    "Behavioral & leadership",
+  ],
+};
+
+/** Internal so ONBOARDING_STEPS can call it before the public export is defined. */
+function weakAreasForRoleInternal(role: string | null | undefined): string[] {
+  const list = (role && WEAK_AREAS_BY_ROLE[role]) || WEAK_AREAS_BY_ROLE["SDE-2 · Frontend"];
+  // "Not sure" is always last and always available — a candidate who doesn't yet
+  // know where they're weak is a normal starting state, not an invalid answer,
+  // and forcing a guess would front-load the plan around a guess.
+  return [...list, NOT_SURE];
+}
+
+/** The weak-area options for a role. Unknown/absent role → the frontend default. */
+export function weakAreasForRole(role: string | null | undefined): string[] {
+  return weakAreasForRoleInternal(role);
+}
+
+/**
+ * The weak areas actually declared — "Not sure" stripped out.
+ *
+ * Both generators read this rather than the raw answer, so "Not sure" means the
+ * same thing everywhere: nothing to front-load, produce a balanced plan.
+ */
+export function declaredWeakAreas(weak: string[]): string[] {
+  return weak.filter((w) => w !== NOT_SURE);
+}
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
@@ -173,7 +258,11 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "timeline",
     q: "How long until your interviews?",
-    options: ["3 weeks", "5 weeks", "8 weeks", "No date yet"],
+    // Month-scale options were added in Phase 4 for people prepping on a longer
+    // runway. NOTE the parser has to understand the UNIT — "6 months" is 24 weeks,
+    // and a first-integer-wins parser would have built a 6-week plan. See
+    // parseTimelineWeeks in lib/seed/answers.ts.
+    options: ["3 weeks", "5 weeks", "8 weeks", "12 weeks", "4 months", "6 months", "No date yet"],
   },
   {
     id: "hours",
@@ -182,15 +271,18 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: "weak",
-    q: "Where are you weakest? Pick all that apply.",
+    // Copy corrected in Phase 4. The old wording ("Where are you weakest? Pick all
+    // that apply.") set the expectation that the plan would BE those areas, and the
+    // first generator prompt obligingly made that true. Weak areas are a weighting:
+    // they get more time and come first, but the plan still covers the role. The
+    // question now says so, because a question that misdescribes what it controls is
+    // a bug in the product, not just in the prompt.
+    q: "Where are you weakest?",
+    hint: "You'll still get a full plan — these just get more time, earlier.",
     multi: true,
-    options: [
-      "Async JS",
-      "Browser & rendering",
-      "React internals",
-      "Frontend system design",
-      "Live coding speed",
-      "Behavioral",
-    ],
+    // Options here are a DEFAULT only. The real list depends on the role answered
+    // in step 1 — see WEAK_AREAS_BY_ROLE / weakAreasForRole below. This array is
+    // what an unrecognised role falls back to.
+    options: weakAreasForRoleInternal(null),
   },
 ];

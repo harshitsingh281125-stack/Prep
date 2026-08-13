@@ -594,6 +594,107 @@ whole promise is that its numbers are complete.
 
 ---
 
+## 17. `server-only` — making "this must never reach the browser" a build error *(added: Phase 4)*
+
+**What it is.** A tiny package (`npm i server-only`) whose only job is to *fail the
+build* if a module is pulled into a Client Component's import graph. You put
+`import "server-only";` as the first line of a module that must stay on the server.
+It works through Next's `react-server` export condition: in the server graph it
+resolves to an empty file, and everywhere else it resolves to a module that throws.
+
+**Why as a React dev.** In plain React there's no such boundary — everything you
+`import` ends up in the browser bundle, and "don't import this on the client" is a
+comment you hope someone reads. Next has a real server/client split, but nothing
+*automatically* stops a secret-bearing module from being dragged clientwards by an
+innocent-looking import chain (`Component → helper → helper → the module with the
+service-role key`). `server-only` turns that from a review question into a compiler
+error. You already know the sibling package: `client-only` does the reverse.
+
+**Where in Prep.** `lib/supabase/admin.ts` — the service-role Supabase client, which
+bypasses RLS — and `lib/ai/gateway.ts`, which holds the AI key path:
+
+```ts
+// lib/supabase/admin.ts
+import "server-only";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+```
+
+Rule 6 says the service-role key is server-only and Rule 2 says the AI key never
+reaches the browser. This is what makes those *enforced* rather than merely
+intended. Note the second guard in the same file: the client is typed against a
+`Database` containing **only `ai_usage`**, so using the RLS-bypassing client to
+touch any other table doesn't typecheck either.
+
+**Gotcha we hit.** Vitest is neither a server bundle nor a client bundle, so
+importing a `server-only` module in a unit test *throws*. Fixed by aliasing it to
+the same empty module Next uses on the server, in `vitest.config.ts`:
+
+```ts
+resolve: { alias: { "server-only": ".../node_modules/server-only/empty.js" } }
+```
+
+That weakens nothing in the app build — the guard still applies where it matters.
+
+**Interview Q.** *"How do you stop a server-only secret from ending up in the client
+bundle?"* → Three layers, cheapest first: (1) naming — only `NEXT_PUBLIC_*` env vars
+are inlined into client bundles at all, so a secret without that prefix is
+`undefined` in the browser; (2) `import "server-only"` on the modules that hold
+them, which makes a bad import a **build failure** rather than a runtime leak; (3)
+typing the privileged client so it can't reach beyond its one table. And then verify
+it — Phase 4's manual matrix greps the built client bundle for the key prefix,
+because a control you haven't tested is a belief.
+
+---
+
+## 18. Environment variables at runtime vs build time — and why the dev server has to restart *(added: Phase 4)*
+
+**What it is.** Next reads `.env.local` **once, at process startup**. Server-side
+`process.env.X` is a real runtime lookup in the Node process; `NEXT_PUBLIC_X` is
+different — it is **statically inlined into the bundle at build time**, i.e. the
+string is baked into the JavaScript the browser downloads.
+
+**Why as a React dev.** With CRA/Vite you learned "env vars are build-time
+substitutions" (`import.meta.env` / `process.env.REACT_APP_*`). Half of that
+survives in Next and half doesn't, and the half that changes is the useful half:
+server code gets *genuine* runtime env access, which is exactly why a secret can
+live there safely. The catch is that "runtime" means the server process's lifetime —
+editing `.env.local` while `npm run dev` is running changes nothing until you
+restart.
+
+**Where in Prep.** `lib/ai/config.ts` reads three server-side vars, and each one
+changes app behaviour:
+
+```ts
+export const DAILY_CALL_CAP = readCap();          // AI_DAILY_CALL_CAP, default 25
+export function billingMode()  { return process.env.AI_BILLING_MODE === "paid" ? "paid" : "free"; }
+export function providerName() {
+  if (process.env.AI_PROVIDER === "mock") return "mock";
+  return process.env.GEMINI_API_KEY ? "gemini" : "none";
+}
+```
+
+None is `NEXT_PUBLIC_`, so none is ever inlined into a client bundle — the browser
+cannot learn the key, the model ids, or even whether AI is on except through
+`/api/usage`, which is auth-gated.
+
+**Gotcha we hit — twice, and the second one cost real time.** The Phase 4 manual QA
+matrix works by *changing* these vars (set the cap to 2, force `AI_MOCK_MODE=error`),
+so every case says "restart the dev server". And in the E2E suite, Playwright's
+`reuseExistingServer: true` reused a `next-server` started **before** those vars
+existed, so two rounds of config edits appeared to do nothing at all. Env changes in
+Next are not hot-reloadable: **if a config change seems to have no effect, suspect
+the process before the config.**
+
+**Interview Q.** *"What's the difference between `NEXT_PUBLIC_FOO` and `FOO` in
+Next.js?"* → `FOO` is read at runtime in the Node process and never leaves the
+server; `NEXT_PUBLIC_FOO` is substituted into the client bundle at build time, so
+it's public forever — including in old deploys and anyone's cached JS. Practical
+consequences: rotating a `NEXT_PUBLIC_` value requires a rebuild *and* is not a
+secret rotation (it was never secret); and you can change server-side config without
+rebuilding, but you do have to restart the process.
+
+---
+
 ## Concepts still to come (added as we build)
 
 - **`generateMetadata` (dynamic titles per roadmap)** *(later — nice-to-have)*.

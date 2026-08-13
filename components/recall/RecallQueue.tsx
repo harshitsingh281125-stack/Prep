@@ -36,7 +36,14 @@ const chipStyle: CSSProperties = {
  * pending state while the request is in flight and renders the interval the
  * server actually chose.
  */
-export default function RecallQueue({ cards }: { cards: DueCard[] }) {
+export default function RecallQueue({
+  cards,
+  totalCards,
+}: {
+  cards: DueCard[];
+  /** Every card the user owns, due or not — distinguishes "clear" from "empty". */
+  totalCards: number;
+}) {
   const [graded, setGraded] = useState<Record<string, Graded>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
@@ -285,7 +292,36 @@ export default function RecallQueue({ cards }: { cards: DueCard[] }) {
         })}
       </div>
 
-      {cleared && (
+      {/* No deck at all — NOT the same as "you're caught up". Says what to do
+          rather than implying there is nothing to do. */}
+      {cleared && totalCards === 0 && (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "40px 24px",
+            border: "1px dashed var(--border)",
+            borderRadius: "12px",
+          }}
+          data-testid="recall-empty"
+        >
+          <div style={{ fontSize: "15px", fontWeight: 600 }}>No recall cards yet</div>
+          <div
+            style={{
+              fontSize: "13px",
+              marginTop: "6px",
+              color: "var(--text-muted)",
+              lineHeight: 1.6,
+              maxWidth: "420px",
+              margin: "6px auto 0",
+            }}
+          >
+            Spaced repetition needs questions to space out. Open a topic in your roadmap and hit{" "}
+            <b>Generate recall cards</b> — they land in this queue due immediately.
+          </div>
+        </div>
+      )}
+
+      {cleared && totalCards > 0 && (
         <div
           style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-muted)" }}
           data-testid="recall-cleared"

@@ -71,6 +71,18 @@ const NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    // Phase 4: the internal cost readout. Kept off /progress on purpose — that
+    // screen is about study honesty (Rule 19), this one is about spend.
+    href: "/usage",
+    label: "AI usage",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+        <path d="M2.5 11.2l3.4-3.9 2.6 2.3 4.9-5.4" />
+        <path d="M10.6 4.2h2.9v2.9" />
+      </svg>
+    ),
+  },
 ];
 
 /* Due-count badge from the design's recallBadgeStyle — mono, pill, accent-soft. */
