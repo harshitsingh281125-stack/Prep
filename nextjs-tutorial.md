@@ -622,8 +622,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 Rule 6 says the service-role key is server-only and Rule 2 says the AI key never
 reaches the browser. This is what makes those *enforced* rather than merely
 intended. Note the second guard in the same file: the client is typed against a
-`Database` containing **only `ai_usage`**, so using the RLS-bypassing client to
-touch any other table doesn't typecheck either.
+`Database` containing an **explicit list of tables** (`ai_usage`, and since Phase
+4.5 the RAG corpus `resources`), so using the RLS-bypassing client to touch any
+other table doesn't typecheck either. The list only grows for tables whose RLS
+denies writes to *every* client — i.e. tables where the service role isn't a
+convenience but the only writer the schema permits.
 
 **Gotcha we hit.** Vitest is neither a server bundle nor a client bundle, so
 importing a `server-only` module in a unit test *throws*. Fixed by aliasing it to
@@ -692,6 +695,66 @@ it's public forever — including in old deploys and anyone's cached JS. Practic
 consequences: rotating a `NEXT_PUBLIC_` value requires a rebuild *and* is not a
 secret rotation (it was never secret); and you can change server-side config without
 rebuilding, but you do have to restart the process.
+
+---
+
+## 19. Export conditions — running `server-only` code *outside* Next *(added: Phase 4.5)*
+
+**What it is.** Node's `exports` field in `package.json` can map one import
+specifier to different files depending on **conditions** the runtime declares.
+`server-only` is the clearest example in this repo — its whole implementation is
+this map:
+
+```json
+{ "exports": { ".": { "react-server": "./empty.js", "default": "./index.js" } } }
+```
+
+`index.js` is a single `throw`. So the package is a *condition detector*: whoever
+resolves it under the `react-server` condition gets an empty module, and everyone
+else gets an exception. Next sets that condition for its server graph. You can set
+it yourself with `node --conditions react-server`.
+
+**Why as a React dev.** This is the machinery under a rule you already follow by
+habit. "Server Components can import this, Client Components can't" isn't enforced
+by a linter or by Next scanning your code — it's module resolution, the same
+mechanism that picks ESM over CJS. Knowing that turns `server-only` from magic
+into a twelve-line package, and it tells you exactly what to do when you need
+server-graph code somewhere Next isn't running.
+
+**Where in Prep.** Phase 4.5 needs a one-off script to embed the RAG corpus, and
+Rule 7 says every AI call goes through the gateway — so the script has to import
+`lib/ai/gateway.ts`, which starts with `import "server-only"`. Under plain `node`
+that throws before a line of our code runs. The fix is to tell Node it *is* the
+server graph:
+
+```json
+// package.json
+"embed:corpus": "node --conditions react-server --import tsx scripts/embed-corpus.ts"
+```
+
+`--conditions react-server` resolves `server-only` to its empty module; `--import
+tsx` adds TypeScript + the `@/*` path aliases from `tsconfig.json`. Note what this
+is *not*: it isn't a way to sneak server code into the browser. It's the opposite —
+we're asserting "this process **is** a trusted server," which is true, since it
+runs from a terminal with the service-role key.
+
+**Gotcha we hit.** Two, in the same script, and both were environment rather than
+logic. (1) `import "dotenv/config"` loads `.env` — this project keeps everything in
+`.env.local`, so it silently loaded nothing and the script failed on a variable that
+was sitting right there; the fix is the explicit `loadEnv({ path: ".env.local" })`
+that `playwright.config.ts` was already using. (2) `supabase-js` constructs a
+realtime client eagerly, which needs a global `WebSocket`; Node 18 has none, while
+Next's server runtime polyfills one — so `lib/supabase/admin.ts` works perfectly in
+the app and throws in a bare script. Fixed *in the script*, not in the shared
+module: product code shouldn't carry a workaround for a script's runtime.
+
+**Interview Q.** *"How does `server-only` actually work — does Next parse your
+imports?"* → No. It's package export conditions. Next resolves the server graph with
+the `react-server` condition, under which the package is an empty file; any other
+graph gets a module whose body is a `throw`, so a bad import fails at build time.
+Which also means you can opt in deliberately: `node --conditions react-server` runs
+server-graph modules in a script, which is how our corpus backfill reuses the AI
+gateway instead of duplicating a provider call.
 
 ---
 

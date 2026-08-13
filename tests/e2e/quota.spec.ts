@@ -68,13 +68,26 @@ test.describe("quota + validation (server-enforced)", () => {
 // follow redirects, so we see the gate's real response.
 test("QT-06: unauthenticated create is blocked (redirect to /login, never 2xx)", async ({
   playwright,
+  baseURL,
 }) => {
   // NOTE: newContext() inherits the ambient project storageState (User A's
   // session) unless you explicitly pass empty cookies — otherwise this request is
   // NOT anonymous and the app's auth gate never gets exercised.
-  const anon = await playwright.request.newContext({ storageState: { cookies: [], origins: [] } });
+  //
+  // The URL comes from the `baseURL` FIXTURE, not from a rebuilt string. It used
+  // to read `process.env.PW_PORT ?? "3001"` — the dev port — while the config's
+  // test port is 3101. So with no PW_PORT set, this security case was posting at
+  // whatever was listening on 3001, i.e. it passed by testing the DEVELOPER'S
+  // server and failed with ECONNREFUSED whenever no dev server happened to be
+  // running. Third time in this project that a test aimed at the wrong server
+  // (see memory.md); the fix each time is to stop reconstructing a URL that
+  // Playwright already knows.
+  const anon = await playwright.request.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
   try {
-    const res = await anon.post(`http://localhost:${process.env.PW_PORT ?? "3001"}/api/roadmaps/generate`, {
+    const res = await anon.post(`/api/roadmaps/generate`, {
       data: VALID_ANSWERS,
       maxRedirects: 0, // see the gate's own response, not the /login page
       headers: { "Content-Type": "application/json" },

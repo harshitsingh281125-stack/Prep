@@ -18,10 +18,17 @@
    model is wired to real traffic.
 5. **RLS on every table.** A user can only ever read/write rows where
    `user_id = auth.uid()`. No table ships without a policy. **One deliberate
-   exception:** the global `resources` corpus (Phase 4.5 RAG) holds shared vetted
-   references, not user data — reads are public-safe, writes are server-only (service
-   role). It is the *only* table without a `user_id`/RLS predicate, called out here
-   so the exception is explicit and defensible, not an oversight.
+   exception, and it is narrower than this rule originally claimed:** the global
+   `resources` corpus (Phase 4.5 RAG) holds shared vetted references, not user data,
+   so its read predicate is `true` rather than `user_id = auth.uid()`. It is the only
+   table **without a `user_id` predicate** — *not* a table without RLS. That
+   distinction is the whole point: on Supabase every `public` table is granted
+   select/insert/update/delete to `anon`/`authenticated` by default and **RLS is what
+   narrows those grants**, so shipping this table with RLS *disabled* — as this rule
+   said until 2026-08-13 — would have made the vetted corpus **world-writable with
+   the anon key**. As built: RLS enabled, `for select using (true)`, and no write
+   policy at all, so writes are denied to every client and curation happens through
+   migrations and the service role. See memory.md.
 6. **Service-role key is server-only.** Never imported into a client component.
 
 ## 2. AI usage rules

@@ -36,6 +36,27 @@ export type ProviderResponse = {
 };
 
 /**
+ * What an embedding is FOR (Phase 4.5).
+ *
+ * Retrieval embeddings are asymmetric: a short question ("Reconciliation &
+ * keys") and the paragraph that answers it are not the same kind of text, and
+ * providers embed them into deliberately different regions when told which is
+ * which. Getting this backwards costs retrieval quality silently — the search
+ * still returns rows, just worse ones.
+ *
+ * Kept as a neutral two-value union rather than a vendor's string constant so
+ * the adapter translates it, the same way the Gemini adapter translates
+ * JsonSchema into Gemini's OpenAPI dialect.
+ */
+export type EmbedPurpose = "query" | "document";
+
+/** One embedding dispatch's result, as returned by a provider adapter. */
+export type ProviderEmbedding = {
+  vector: number[];
+  usage: Usage;
+};
+
+/**
  * A provider adapter. The gateway owns caps, validation, retry and metering;
  * an adapter's only job is "turn this request into text + token counts".
  *
@@ -55,6 +76,24 @@ export interface Provider {
     /** Provider-side structured-output constraint, when the caller has one. */
     jsonSchema?: JsonSchema;
   }): Promise<ProviderResponse>;
+
+  /**
+   * Turn text into a vector (Phase 4.5 RAG).
+   *
+   * Required, not optional, even though only one route uses it: an adapter that
+   * can complete but silently cannot embed would fail at runtime in the middle
+   * of a user's request. Making it part of the interface means "can this
+   * provider serve Prep?" is answered by the compiler.
+   *
+   * `dimensions` is passed in rather than assumed because the DB column is a
+   * fixed width — see the embedding-width note in 0007_resources.sql.
+   */
+  embed(req: {
+    model: string;
+    input: string;
+    purpose: EmbedPurpose;
+    dimensions: number;
+  }): Promise<ProviderEmbedding>;
 }
 
 /**
@@ -93,3 +132,16 @@ export type FailureReason =
 export type CompleteResult<T> =
   | { ok: true; data: T; usage: Usage; model: string; attempts: number }
   | { ok: false; reason: FailureReason; attempts: number };
+
+/**
+ * The gateway's embedding return type — a union for the same reason
+ * CompleteResult is one (Rule 9). A failed embedding must degrade to "no
+ * retrieval, use generated resources", never to a thrown error that takes out
+ * the topic-detail request.
+ *
+ * Note there is no `attempts`: unlike a completion, an embedding is never
+ * retried. See the comment on embed() in gateway.ts.
+ */
+export type EmbedResult =
+  | { ok: true; vector: number[]; usage: Usage; model: string }
+  | { ok: false; reason: FailureReason };

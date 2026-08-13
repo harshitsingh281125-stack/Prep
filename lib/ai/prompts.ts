@@ -91,6 +91,57 @@ export function buildTopicDetailInput(opts: {
   ].join("\n");
 }
 
+// --- topic detail, RAG-grounded (reasoning tier, Phase 4.5) ----------------
+//
+// The same job as SYSTEM_TOPIC_DETAIL above, with one difference that is the
+// entire point of the phase: the model does not supply the references. It is
+// shown a numbered list of documents that were retrieved from a hand-vetted
+// corpus, and it may only cite them BY NUMBER.
+//
+// Note what is NOT in this prompt: any instruction like "do not invent URLs" or
+// "only use links from the list". Those would be a request, and a request is
+// exactly the kind of constraint models violate under pressure. There is no URL
+// field in the schema at all, so there is nothing to invent — the link is looked
+// up from our own row afterwards by index. The same reasoning as "the model
+// writes content, not contract" in validate.ts: don't validate away a failure
+// you can make unrepresentable.
+export const SYSTEM_TOPIC_DETAIL_GROUNDED = `You write study material for one interview-prep topic, using a supplied reading list.
+
+You will be given a topic and a numbered list of vetted documents. Return:
+
+1. MODEL — the mental model. One paragraph. The single explanation the candidate
+   should be able to say out loud before writing any code. Lead with the
+   mechanism, not the definition. If there is a common misconception, kill it.
+2. RESOURCES — select the documents from the numbered list that genuinely help
+   with THIS topic, ranked most useful first. Reference each by its number. For
+   each one give a short reason ("why") saying what it gives the candidate that
+   the others do not. Select only what is relevant: if only two of the documents
+   are worth reading for this topic, return two. Never pad the list to fill it,
+   and never reference a number that was not provided.
+3. EXERCISES — 2 to 4 from-scratch exercises. Each must be something the
+   candidate BUILDS or EXPLAINS from memory, never something they read.
+
+Write for a competent engineer who is short on time. No filler, no encouragement,
+no restating the question back. Be specific enough to be wrong.`;
+
+export function buildGroundedDetailInput(opts: {
+  topicName: string;
+  weekTitle: string;
+  docs: { title: string; kind: string; summary: string }[];
+}): string {
+  return [
+    `TOPIC: ${opts.topicName}`,
+    `WEEK: ${opts.weekTitle}`,
+    "",
+    "DOCUMENTS:",
+    // 1-based numbering because that is what the schema's `ref` field means, and
+    // because models are markedly better at 1-based lists than 0-based ones.
+    ...opts.docs.map(
+      (d, i) => `${i + 1}. [${d.kind}] ${d.title} — ${d.summary}`
+    ),
+  ].join("\n");
+}
+
 // --- recall cards (classification tier) ------------------------------------
 
 export const SYSTEM_RECALL = `You write active-recall questions for spaced repetition.

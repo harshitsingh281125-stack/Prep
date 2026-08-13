@@ -19,14 +19,20 @@ export type OnboardingAnswers = {
 // color.
 //
 // `unverified` (Phase 4): true when the resource came out of a model's memory
-// rather than a vetted corpus. Nothing in Phase 4 can check whether the document
-// exists, so the UI marks it and says so. Phase 4.5's RAG grounding is what
-// clears the flag — resources selected from the curated `resources` table come
-// back without it.
+// rather than a vetted corpus. Nothing in Phase 4 could check whether the
+// document existed, so the UI marks it and says so.
+//
+// `url` (Phase 4.5): present ONLY on resources retrieved from the curated
+// `resources` corpus. The two flags are two halves of one fact and are set
+// together — a corpus resource has a url and no `unverified`; a generated one
+// has `unverified: true` and no url. That is why the UI can treat "is a link" and
+// "is vetted" as the same question: a model-recalled URL never gets stored,
+// because the grounded generator is never asked for one (see validate.ts).
 export type SeedResource = {
   title: string;
   meta: string; // e.g. "react.dev · 25 min"
   tag: "Docs" | "Deep" | "Article" | "Talk" | "Spec";
+  url?: string;
   unverified?: boolean;
 };
 
@@ -38,15 +44,17 @@ export type SeedExercise = {
 // The detail blob stored in topics.detail — the mental model, ranked resources,
 // and from-scratch exercises for one topic.
 //
-// `source` (Phase 4) records which path produced it: a real generation, or the
-// seeded template the route falls back to when generation fails (Rule 9). The
-// UI shows it, because "the AI was down so this is the template" is information
-// the user is entitled to rather than a degradation to hide.
+// `source` records which path produced it. The UI shows it, because "the AI was
+// down so this is the template" is information the user is entitled to rather
+// than a degradation to hide. Three values, in descending order of grounding:
+//   'rag'  (Phase 4.5) — resources selected from the curated corpus; links are real
+//   'ai'   (Phase 4)   — fully generated; resources are model-recalled, unverified
+//   'seed' (Phase 1)   — the hand-written template, used when generation fails
 export type TopicDetail = {
   model: string;
   resources: SeedResource[];
   exercises: SeedExercise[];
-  source?: "ai" | "seed";
+  source?: "rag" | "ai" | "seed";
 };
 
 // Phase 4: `detail` is null on a freshly generated roadmap. Topics no longer

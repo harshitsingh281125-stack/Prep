@@ -467,21 +467,103 @@ status from a pure function — so the dashboard structurally *cannot* flatter y
   before real users. The point of the gateway is exactly that this is a swap, not a
   rewrite — I optimized for $0 now with a clean paid-tier upgrade path.
 
-### 4g. RAG — grounding resources on a curated corpus [Phase 4.5]
-> _Fill when built. The spine of the answer, ready to flesh out:_
-- _The failure mode it fixes:_ LLM-generated resources hallucinate URLs / cite dead
-  links — the one real retrieval problem in Prep. RAG grounds the ranked-resources
-  list on vetted docs so no link is invented.
-- _The flow:_ embed the topic query → pgvector cosine top-k over a global `resources`
-  corpus (filtered by `topic_area`) → reasoning-tier completion whose schema forbids
-  URLs outside the retrieved set. _(fill exact k, index type, prompt once built)_
-- _Why pgvector + HNSW, in-Postgres:_ small corpus, no new infra, joinable in SQL.
-- _"Why is `resources` the one table without RLS?"_ → it's a global vetted corpus,
-  not user data; reads are public-safe, writes are service-role only. Deliberate
-  Rule-5 exception, not an oversight.
-- _The Rule-9 fallback:_ empty retrieval → generated resources flagged `unverified`;
-  RAG never hard-blocks a flow.
-- _"Why not LangChain / a vector DB?"_ → see §5 rapid-fire.
+### 4g. RAG — grounding resources on a curated corpus [Phase 4.5 — built]
+
+**The failure mode it fixes (lead with this — it's a failure-driven answer, not a
+résumé item).** When you ask a model for "the best resources on X", it produces
+plausible titles and URLs that frequently don't exist or have rotted. That is a
+*retrieval* problem, and it is the only genuine one in Prep — so it's the only place
+RAG is used. Mental model and exercises stay pure generation, because there's no
+retrieval problem there.
+
+**The pipeline** (`/api/topics/[id]/detail`), 4 steps, all owned:
+1. Build a query from the topic name + its week title (`lib/rag/query.ts`, pure).
+2. `gateway.embed({ purpose: 'query' })` — same gateway, same cap, same metering.
+3. `match_resources()` — a SQL function: cosine top-5 over 48 vetted docs, above a
+   similarity floor.
+4. A reasoning-tier completion given those docs **numbered**.
+
+**The one design decision to lead with: the model never handles a URL.** The obvious
+implementation is "tell the model it may only use the provided links, then validate
+that every URL it returns was in the retrieved set". I did something stronger — the
+grounded schema has **no `url`, no `title`, no `tag` field at all**. The model
+returns `{ ref: <1-based index into the documents I gave it>, why: "…" }`, and my
+validator resolves that index back to my own row. So a hallucinated citation isn't
+*rejected*, it's **unrepresentable**; the only thing left to check is that an integer
+is in range. That's the same principle as my roadmap generator not being asked for
+the week count: *don't validate away a failure you can make impossible to express.*
+The honest cost: the model can't recommend a good document that isn't in my corpus.
+For a study tool whose users click the links, a short list that's all real beats a
+long list that's partly fiction.
+
+**The second thing to lead with: the threshold was calibrated, and my first guess was
+wrong.** A plain top-k always returns k rows however irrelevant, so the similarity
+floor is what makes "the corpus has nothing for this topic" expressible — and
+therefore what makes the fallback branch reachable at all. I set it to 0.55 by
+intuition, then measured it against deliberately off-domain queries before trusting
+it: "Postgres query planner internals" scored **0.568** against my frontend corpus,
+and "Kafka consumer group rebalancing" **0.560** — both *above* my threshold.
+**Gemini's embeddings aren't zero-centred: two texts with nothing in common still
+score ~0.55.** At 0.55 a backend topic would have been grounded on React docs and
+every link rendered with a green VERIFIED badge — the exact failure the feature
+exists to remove, wearing the badge that says it was fixed. Nothing would have
+errored and no test would have gone red. It's 0.62 now (above every off-domain score,
+below every relevant one), and the calibration probe is a checked-in script that
+exits non-zero if an off-domain query ever clears the floor. *Lesson: a threshold on
+embedding similarity is a property of the model-and-corpus pair, not a constant —
+calibrate against queries you know should fail.*
+
+**"Why is `resources` the one table without RLS?"** — **it isn't, and that's the
+interesting part.** The plan said "no RLS: it's a global vetted corpus, reads are
+public-safe, writes are server-only". Implementing that literally would have been a
+security hole: on Supabase every `public` table is granted select/insert/update/delete
+to `anon` and `authenticated` by default, and **RLS is the thing that narrows those
+grants** — so a public table with RLS *off* is world-**writable** with the anon key.
+Anyone could have inserted a row and chosen which links my app vouches for. What
+shipped: RLS **enabled**, `for select using (true)`, and no write policy at all, so
+every client write is denied; curation goes through migrations and the service role.
+So it's the one table with no **`user_id` predicate**, not the one table with no RLS —
+the same two-axis shape as `ai_usage`: *ownership decides who may read, whether the
+value enforces a product rule decides who may write*, with the read scope widened
+because the data is public rather than personal. **Generalisable: "no policy" is only
+restrictive if the baseline is deny.**
+
+**Why pgvector in the same Postgres, and why `vector(1536)`.** No new datastore for a
+48-row corpus — it's one extension, and the search is a SQL function I can read.
+The width is a *constraint*, not a preference: the model returns 3072 dimensions
+natively, but **pgvector can't build an HNSW or IVFFlat index above 2000 dims**, so
+3072 would mean a sequential scan forever or halfvec at half precision. 1536 is a
+Matryoshka truncation — leading dimensions carry the most signal by construction.
+Detail worth knowing: truncated Gemini vectors come back **not** unit-length (0.70),
+which is harmless under cosine (scale-invariant) but would matter instantly under
+inner-product, so the backfill normalises. And be honest about the index: at 48 rows
+Postgres will seq-scan and should — the HNSW index is there so the query doesn't have
+to change as the corpus grows.
+
+**The Rule-9 fallback, which now has to survive four new failure modes.** Adding
+retrieval to a working flow adds four ways to break it: no match, corpus unreachable,
+embedding capped, embedding provider down. All four land on the same rung — generated
+resources flagged `unverified`, which is the behaviour the route already had — and
+below that sits the seeded template. Three rungs, each labelled in the response and
+on screen (`grounded · vetted sources` / `ai-generated` / `template`), because a
+template silently standing in for a generation is information the user is entitled to.
+
+**How I tested a pipeline whose provider I can't call in CI.** The E2E suite runs on
+a mock provider whose embeddings are lexical — a different vector space from the
+corpus's real vectors, so genuine similarities are noise. I run **two test servers**
+differing in one env var: one with the floor forced to −1 (everything hits → the
+grounded branch runs) and one at 2 (nothing can hit → the fallback branch runs), so
+both halves are covered deterministically. What no automated test then claims is that
+the *ranking* is good — that's a human reading real output, and I say so in the test
+docs rather than letting a green suite imply it.
+
+**Corpus curation.** 48 hand-picked references across 7 areas, weighted to primary
+sources (MDN, the WHATWG HTML standard, react.dev, RFC 9111, web.dev). **Every URL
+was fetched and confirmed 200 before it went into the migration** — which caught one
+404 and one redirect onto a duplicate. Shipping links I was merely *confident* about
+would have reproduced by hand the exact failure the feature removes.
+
+**"Why not LangChain / a vector DB?"** → see §5 rapid-fire.
 
 ### 4f. The sandboxing trade-off [cut / v2]
 - _Why server-side code execution was consciously cut for v1_ (security surface:

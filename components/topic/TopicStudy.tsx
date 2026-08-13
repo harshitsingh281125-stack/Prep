@@ -33,6 +33,19 @@ function tagColor(tag: SeedResource["tag"]): string {
   return "var(--text-muted)";
 }
 
+/**
+ * Where this topic's content came from, in three words the user can act on.
+ * Phase 4.5 added the top rung: 'rag' means the resources below are real links
+ * chosen from the curated corpus, which is a materially different claim from
+ * 'ai' (the model recalled them and nothing checked) — so it gets its own label
+ * rather than being folded into "ai-generated".
+ */
+function sourceLabel(source: TopicDetail["source"]): string {
+  if (source === "rag") return "grounded · vetted sources";
+  if (source === "ai") return "ai-generated";
+  return "template";
+}
+
 type SaveState = "idle" | "saving" | "saved";
 
 /**
@@ -318,7 +331,7 @@ export default function TopicStudy({
                   data-testid="detail-source"
                   style={{ fontFamily: MONO, fontSize: "10.5px", color: "var(--text-faint)" }}
                 >
-                  {detail.source === "ai" ? "ai-generated" : "template"}
+                  {sourceLabel(detail.source)}
                 </span>
               </div>
               <div style={{ fontSize: "14.5px", lineHeight: 1.6 }}>{detail.model}</div>
@@ -352,16 +365,56 @@ export default function TopicStudy({
                     {i + 1}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "14px", fontWeight: 500 }}>{r.title}</div>
+                    {/* A url is present only on corpus-retrieved resources, so
+                        "is a link" and "was vetted" are the same condition —
+                        the grounded generator is never asked for a URL, so a
+                        model-recalled one can't reach this branch. */}
+                    {r.url ? (
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: "14px", fontWeight: 500, color: "var(--accent)" }}
+                      >
+                        {r.title}
+                      </a>
+                    ) : (
+                      <div style={{ fontSize: "14px", fontWeight: 500 }}>{r.title}</div>
+                    )}
                     <div style={{ fontSize: "12px", color: "var(--text-faint)", fontFamily: MONO }}>{r.meta}</div>
                   </div>
-                  {/* Phase 4: generated resources are model-recalled and nothing
-                      here can check them. Marked until Phase 4.5 grounds them
-                      against the curated corpus. */}
+
+                  {/* The positive case, stated rather than implied. Without it a
+                      user cannot tell a vetted corpus link from a link a model
+                      happened to produce — and the whole point of Phase 4.5 is
+                      that those are different things. */}
+                  {r.url && !r.unverified && (
+                    <span
+                      data-testid="verified-chip"
+                      title="Retrieved from Prep's hand-curated corpus. The model ranked it; it did not invent it."
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: "10.5px",
+                        color: "var(--green)",
+                        background: "var(--green-soft)",
+                        border: "1px solid var(--green)",
+                        borderRadius: "5px",
+                        padding: "2px 7px",
+                        flex: "0 0 auto",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Verified
+                    </span>
+                  )}
+
+                  {/* Generated resources are model-recalled and nothing here can
+                      check them — the corpus had no match for this topic. */}
                   {r.unverified && (
                     <span
                       data-testid="unverified-chip"
-                      title="Generated from the model's memory — not checked against a source. Phase 4.5 grounds these on a curated corpus."
+                      title="Generated from the model's memory — no vetted source in the corpus matched this topic, so nothing has checked it."
                       style={{
                         fontFamily: MONO,
                         fontSize: "10.5px",

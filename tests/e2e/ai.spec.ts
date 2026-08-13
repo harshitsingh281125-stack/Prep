@@ -232,7 +232,11 @@ test.describe("Rule 9 — the flow completes whatever the AI does", () => {
     // all of them are still a 200 with usable content.
     expect(response.status()).toBe(200);
     const body = await response.json();
-    expect(["ai", "seed"]).toContain(body.source);
+    // 'rag' joined the set in Phase 4.5 — this server's similarity floor makes
+    // retrieval hit, so the normal outcome here is now a grounded generation.
+    // The assertion is about Rule 9 (SOME usable content, always), not about
+    // which rung produced it; rag.spec.ts is what pins the grounded rung.
+    expect(["rag", "ai", "seed"]).toContain(body.source);
     expect(body.detail.model.length).toBeGreaterThan(0);
     expect(body.detail.resources.length).toBeGreaterThan(0);
 

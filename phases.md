@@ -151,20 +151,45 @@ and month-scale timelines parsing as weeks.
 ## Phase 4.5 — RAG: ground topic resources on a curated corpus
 **Goal:** kill hallucinated/dead resource links by retrieving over vetted docs —
 the *only* genuine retrieval problem in Prep, so the only place RAG earns its keep.
-- Enable `pgvector`; add the **global `resources`** table (topic_area, title, url,
-  kind, summary, `embedding vector`) with an HNSW cosine index. This is the one
-  table *without* RLS (shared vetted refs, server-only writes) — the deliberate
-  exception to Rule 5, be ready to defend it.
-- Add `embed()` to the AI Gateway (provider-agnostic + metered like `complete()`).
-- **Seed** a hand-curated corpus (MDN/spec/article/talk entries per weak-area) via a
-  SQL migration; a one-off script computes embeddings through `gateway.embed()`.
-- Rewire `/api/topics/[id]/detail`: embed the topic query → `pgvector` top-k search
-  (filtered by `topic_area`) → reasoning-tier completion **grounded** on the
-  retrieved docs (schema forbids URLs not in the retrieved set). Empty retrieval →
-  fall back to generated `unverified` resources (Rule 9: RAG never hard-blocks).
-- **Demo:** open a topic → its resources are real, vetted links from the corpus;
-  a niche topic with no corpus hit gracefully shows generated resources marked
-  *unverified*. `ai_usage` shows the embedding call metered alongside the completion.
+**Status:** built; **Vitest 207/207, Playwright 64/64 green (2026-08-13)**;
+migrations `0007_resources.sql` + `0008_resources_seed.sql` applied and the corpus
+embedded (48/48). **QA gate (Rule 27) still open** — manual matrix at
+[tests/phase-4.5-rag.md](./tests/phase-4.5-rag.md) awaiting a run.
+- `pgvector` enabled; the **global `resources`** table (topic_area, title, url, kind,
+  summary, `vector(1536)`) with an HNSW cosine index, plus a `match_resources()` SQL
+  function (supabase-js cannot express `order by embedding <=> $1`).
+- **Correction to this phase's own plan — `resources` is NOT "the table without
+  RLS".** That would have been a hole: on Supabase every `public` table is granted
+  writes to `anon`/`authenticated` by default and RLS is what *narrows* them, so RLS
+  off = world-writable corpus. Shipped with RLS **on**, `for select using (true)`,
+  and no write policy. The Rule 5 exception is "no `user_id` **predicate**", not "no
+  RLS". Be ready to defend the distinction — it's the better answer anyway.
+- `embed()` added to the AI Gateway — provider-agnostic, capped and metered like
+  `complete()`, but with **no retry** (a wrong-width vector is a deterministic config
+  error, not a flaky one) and a width check at the gateway boundary.
+- **Embedding width settled: `vector(1536)`**, from a live probe — the model returns
+  3072 natively, but **pgvector cannot index a `vector` above 2000 dims**.
+- **Corpus:** 48 hand-curated entries across 7 topic areas, seeded by SQL migration;
+  **every URL fetched and confirmed 200 before it was written** (caught a 404 and a
+  redirect-to-duplicate). `npm run embed:corpus` computes the vectors through
+  `gateway.embed()`.
+- `/api/topics/[id]/detail` rewired: embed the topic query → cosine top-k above a
+  **similarity floor** → reasoning-tier completion grounded on the retrieved docs.
+  **The model is never asked for a URL** — it cites documents by 1-based index and
+  the validator resolves the index to our row, so a hallucinated link is
+  *unrepresentable* rather than merely rejected.
+- **Retrieval gate is the floor, not a `topic_area` filter** (the filter was specced
+  and dropped — the embedding already handles cross-domain bleed, and a keyword
+  classifier would only add a way to silently exclude the right documents).
+  **The floor is 0.62, measured not guessed:** at the intuitive 0.55, off-domain
+  topics ("Postgres query planner" → 0.568) would have been grounded on frontend
+  docs and badged VERIFIED. Gemini embeddings aren't zero-centred.
+- Empty retrieval → generated `unverified` resources → seeded template. Three
+  labelled rungs; RAG never hard-blocks (Rule 9).
+- **Demo:** open a topic → its resources are real, vetted links from the corpus with
+  green VERIFIED chips; a niche topic with no corpus hit gracefully shows generated
+  resources marked *unverified* and unlinked. `/usage` shows the embedding call
+  metered alongside the completion — two calls per grounded topic, not one.
 
 ## Phase 5 — Print/export + polish
 **Goal:** shippable v1.
@@ -196,8 +221,12 @@ the *only* genuine retrieval problem in Prep, so the only place RAG earns its ke
   **SETTLED 2026-08-08:** `{ title, subtitle, weeks: [{ title, killCriterion,
   topics: string[] }] }`, and what it deliberately **omits** matters more than what
   it contains — no week numbers, no hours, no week count. See `lib/ai/validate.ts`.
-- **[Phase 4.5] embedding output dim** — sets the `vector(N)` column width. Confirm
-  from a real `embed()` response before writing that migration.
+- ~~**[Phase 4.5] embedding output dim**~~ — **SETTLED 2026-08-13, from a live
+  `embed()` probe:** `gemini-embedding-001` returns **3072** natively (unit length)
+  and honours `outputDimensionality` (1536 → L2 0.7023, i.e. truncated vectors are
+  **not** normalised). Column is **`vector(1536)`** because **pgvector cannot index a
+  `vector` wider than 2000 dims** — 3072 would mean a seq scan forever or `halfvec`
+  at half precision. See memory.md + Architecture §4.
 - **Onboarding wording / weak-area taxonomy / role scope** — deferred past Phase 4
   on purpose (2026-08-12). Roles and weak-area options are frontend-specific because
   **the seeded fallback catalog is a frontend curriculum**; adding "Backend" would
