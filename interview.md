@@ -441,13 +441,18 @@ status from a pure function — so the dashboard structurally *cannot* flatter y
   actually produced. A generation that had to be retried genuinely made that roadmap
   more expensive; hiding retries in the numerator would flatter the number.
 - _The counterintuitive routing decision (lead with this):_ the pricier-per-token tier
-  sits on the **rare** call (roadmap gen — ≤3 per user, ever, by the quota rule), the
-  cheap tier on the **frequent** one (recall grading — fires every review). **Cost
-  follows call volume, not perceived importance** — so the "expensive" model is
-  actually the cheap line item. That inversion is the whole story.
-- _Why classification-tier for recall grading:_ it's a short, high-volume "close enough
-  = miss" check — no deep reasoning needed, and self-grade is always the fallback, so a
-  cheap model is the right tool and AI-off still works.
+  sits on the **rare** call (roadmap gen — ≤3 per user, ever, by the quota rule; and
+  topic detail — once per topic, on an explicit button), the cheap tier on the
+  **frequent** one (recall-card generation, which runs per topic across every
+  roadmap). **Cost follows call volume, not perceived importance** — so the
+  "expensive" model is actually the cheap line item. That inversion is the whole story.
+- _Careful — do NOT say "recall grading" here._ An earlier version of the plan put a
+  cheap-model assist on free-text recall grading, and it was **deliberately not
+  built**: Prep self-grades **binary** (Got it / Missed), so there is no free text to
+  grade, and Rule 17 ("close enough is a miss") is a rule about the user being honest
+  with themselves — delegating it to a model inclined toward generosity would
+  undermine the one thing the retention loop exists to enforce. If asked why there's
+  no AI in grading, that's the answer, and it's a better one than the feature.
 - _Prompt caching — what's cached and the honest saving:_ the fixed system/rubric
   scaffolding is cached. On the free tier the dollar saving is ~$0 (already free), so at
   v1 it's a **latency + token-efficiency** win; the dollar saving is **projected** at

@@ -15,7 +15,7 @@
 
 ## What automation already covers — do NOT re-do by hand
 
-**69 unit + 20 E2E, green as of 2026-08-08.**
+**88 AI-specific unit tests + 20 E2E, green as of 2026-08-12** (out of 165 unit / 51 E2E across the whole suite).
 
 - **`tests/unit/ai-validate.test.ts` (25)** — every schema-validation branch: wrong
   week count both directions, model-supplied `n`/`hours` ignored, short kill

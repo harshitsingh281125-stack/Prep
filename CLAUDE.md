@@ -30,10 +30,11 @@ Full context lives in these docs — **read them before non-trivial work**:
   hides the schema (DB fluency is a project goal).
 - **AI:** provider-agnostic **AI Gateway** (`lib/ai/gateway.ts`). Product code calls
   `complete({ tier: 'reasoning' | 'classification', … })` — never a vendor SDK.
-  The v1 model/provider is an **open decision** (Phase 4 brainstorm).
+  **v1 = Google Gemini (settled 2026-07-28, live since Phase 4)**, bound in
+  `lib/ai/config.ts` — the only file naming a model.
 - **Hosting:** Vercel.
 
-## Non-negotiable rules (see Rules.md for the full 26)
+## Non-negotiable rules (see Rules.md for the full 27)
 
 - **No unauthenticated AI route.** AI key is server-only; never reaches the browser.
 - **Hard per-user daily AI caps**, enforced server-side before dispatch.
@@ -67,7 +68,7 @@ Full context lives in these docs — **read them before non-trivial work**:
   2026-07-31; Phase 2 closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass;
   Phase 3 closed 2026-08-08 — Vitest 77/77, E2E 31/31, full manual pass incl. the
   Table-Editor elapsed-time cases; Phase 4 closed 2026-08-12 — Vitest 165/165,
-  E2E 51/51, full manual pass all 74 cases incl. the cap/fallback env-injection
+  E2E 51/51, full manual pass all 76 cases incl. the cap/fallback env-injection
   suites); **next up is Phase 4.5 (RAG — grounding topic resources on a curated
   corpus)**.
 - **AI is live.** All generation goes through `lib/ai/gateway.ts`; `lib/ai/config.ts`

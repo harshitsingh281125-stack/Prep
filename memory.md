@@ -246,6 +246,12 @@
   this shell; Management API blocks DDL — see the two bug entries below).
 
 - **2026-07-28 · v1 AI models: Google Gemini free tier, tier-routed behind the gateway.**
+  *(Historical record of the decision as taken. **Refined by the 2026-08-08/08-12
+  entries above** — the concrete ids are `gemini-3.5-flash` / `gemini-3.5-flash-lite`
+  / `gemini-embedding-001`; "recall grading" below never shipped as an AI call, the
+  frequent classification-tier call is recall-CARD generation; and the free tier
+  proved unreliable, not merely rate-limited. Read this entry as "what we decided
+  then", not as current state.)*
   Brainstormed cost vs quality for the Phase 4 model pick. **Decisions:** (1) **v1 uses
   Google Gemini's free tier** across all bindings — `reasoning` = **Gemini Flash**
   (roadmap gen + topic detail), `classification` = **Gemini Flash-Lite** (recall
@@ -356,6 +362,7 @@
   for that server layer.
 
 - **2026-07-24 · AI is integrated in v1, but the model/provider is an open decision.**
+  *(Historical. **Closed 2026-07-28** — Gemini; built and live in Phase 4.)*
   Why: the *pick* (free/cheap vs Claude API) is deferred to a brainstorm, but the
   *architecture* is not. Everything routes through a provider-agnostic **AI Gateway**
   (`complete({ tier, … })`), so swapping models is a config change, not a rewrite.
@@ -725,7 +732,7 @@
   Playwright **51/51** (20 AI: all four routes anon-blocked, ownership 404 before any
   spend, cross-user generation blocked, the Rule 9 flow-completes guarantee, detail
   persistence, card idempotency, `/api/usage` coherence, and the four `ai_usage` RLS
-  cases) · **full manual pass green — all 74 cases**, and the awkward ones were
+  cases) · **full manual pass green — all 76 cases**, and the awkward ones were
   genuinely run rather than eyeballed: the cap suite (set to 2, restart, watch a real
   generation get refused *and still return content*), all four `AI_MOCK_MODE` failure
   injections including `malformed-once` proving the retry recovers invisibly, and the

@@ -14,9 +14,9 @@ Manual matrices, one per phase:
 [phase-3-progress.md](./phase-3-progress.md) · [phase-4-ai-gateway.md](./phase-4-ai-gateway.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **146** (6 seed + 6 seed-detail + 18 scheduler + 53 progress
-+ 25 ai-validate + 18 ai-cost + 20 ai-gateway) · Playwright **51** (10 Phase 1 + 8 recall
-+ 13 sessions + 20 AI), all green as of 2026-08-08.
+**Current counts:** Vitest **165** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
++ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway) · Playwright **51**
+(10 Phase 1 + 8 recall + 13 sessions + 20 AI), all green as of 2026-08-12.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 

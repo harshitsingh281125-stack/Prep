@@ -1,7 +1,7 @@
 # Architecture — Prep
 
 > **Stack:** Next.js (App Router) · Supabase (Postgres + Auth + RLS) ·
-> provider-agnostic AI Gateway (model choice open for v1) · Vercel hosting.
+> provider-agnostic AI Gateway (v1: Google Gemini, live since Phase 4) · Vercel hosting.
 > Companion: [PRD.md](./PRD.md) · [phases.md](./phases.md) · [Rules.md](./Rules.md).
 
 ---
@@ -29,7 +29,7 @@
         │ service-role (server only)         │
         ▼                                     ▼
 ┌───────────────────┐             ┌──────────────────────────┐
-│ Supabase Postgres │             │ AI provider (v1: TBD)    │
+│ Supabase Postgres │             │ AI provider (v1: Gemini) │
 │  + RLS policies   │             │  behind the Gateway iface │
 └───────────────────┘             └──────────────────────────┘
 ```
@@ -52,9 +52,12 @@ owned-vs-not-owned):
 - **Supabase:** Postgres (write real SQL — DB is a stated skill gap, don't let an
   ORM hide it), Auth (email + Google OAuth), and RLS so most reads are safe direct
   from the client. Generous free tier.
-- **AI Gateway abstraction:** the model/provider is an *open v1 decision*. Product
-  code calls `generateRoadmap()`, never a vendor SDK, so the pick can change (or
-  A/B) without a rewrite.
+- **AI Gateway abstraction:** product code calls `complete({ tier, … })`, never a
+  vendor SDK, so the pick can change (or be A/B'd) without a rewrite. **v1 is Google
+  Gemini** (settled 2026-07-28, live since Phase 4) — and the abstraction earned its
+  keep immediately: Gemini's free tier was returning 429s for days at the start of
+  that phase, and swapping to the mock adapter to keep building was a one-env-var
+  change rather than a refactor.
 
 ## 3. Routes / surface map
 
@@ -145,7 +148,8 @@ topics (
   user_id uuid not null,
   name text not null,
   status text default 'not_started', -- not_started|in_progress|mastered
-  detail jsonb,                   -- AI-generated: {model, resources[], exercises[]}
+  detail jsonb,                   -- NULL until generated on demand (Phase 4).
+                                  -- {model, resources[], exercises[], source:'ai'|'seed'}
   mastered_at timestamptz
 )
 
@@ -367,7 +371,7 @@ create index ai_usage_user_day_idx on ai_usage (user_id, created_at);
 -- count calls since midnight before allowing a new AI request.
 ```
 
-## 5. AI Gateway (the abstraction the whole "model choice is open" plan rides on)
+## 5. AI Gateway (built in Phase 4)
 
 A single server-side module. Product code depends on **this interface only** —
 never a vendor SDK.
@@ -460,9 +464,22 @@ local dev and the whole E2E suite so tests never depend on a third party's uptim
   for the "cut inference cost ~X%" résumé bullet (a projection, not a free-tier
   fiction).
 
-Seeded/mock content (the `weeksData`, `recallData`, `topicDetail` maps already in
-`Prep.dc.html`) becomes the **fallback + local-dev provider**, so the UI is fully
-functional before any real model is wired.
+**Seeded/mock content is the fallback + local-dev provider** — as of Phase 4 this is
+built, not planned. Three distinct things play that role and they are worth keeping
+separate:
+
+- `lib/seed/generate.ts` (from the design's `weeksData`) — the fallback when a
+  roadmap generation is capped, unreachable, or twice-malformed;
+- `lib/seed/detail.ts` (from `topicDetail`) — the same for topic detail. It moved out
+  of the roadmap generator in Phase 4: roadmaps now ship `detail: null` on every
+  topic, so this is a fallback rather than a default;
+- `lib/seed/recall.ts` (from `recallData`) — the same for recall cards, keyed by
+  *catalog* topic name, so it only matches seeded roadmaps.
+
+Plus `lib/ai/providers/mock.ts`, a deterministic provider selected by
+`AI_PROVIDER=mock`, with `AI_MOCK_MODE` to inject the malformed/error paths on demand.
+The app is therefore fully functional with AI switched off entirely — which is Rule 9's
+real test, and is exercised by manual suite FALL rather than merely asserted.
 
 ## 5b. RAG — grounding topic resources against a curated corpus (Phase 4.5)
 

@@ -85,7 +85,7 @@ See [tests/phase-3-progress.md](./tests/phase-3-progress.md).
 **Goal:** swap the seed for real AI behind the gateway — *this is where the model
 brainstorm lands.*
 **Status:** built + tested (Vitest **165/165**, Playwright E2E **51/51**, **full manual
-pass green — all 74 cases**, including the suites that need config changes and a
+pass green — all 76 cases**, including the suites that need config changes and a
 dev-server restart per case (CAP's `AI_DAILY_CALL_CAP=2`, FALL's four `AI_MOCK_MODE`
 runs) and the browser-console RLS bypass attempts (SEC-03/04/05) — QA gate closed,
 Rule 27). Migration `0006_ai_usage.sql` applied. Branch `phase-3-progress` / PR open.
