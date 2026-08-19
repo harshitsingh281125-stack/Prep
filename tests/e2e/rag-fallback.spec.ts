@@ -79,6 +79,14 @@ test.describe("RAG fallback — an empty corpus never blocks a topic", () => {
       }
       await expect(page.getByTestId("unverified-chip").first()).toBeVisible();
       await expect(page.getByTestId("verified-chip")).toHaveCount(0);
+
+      // The title IS clickable, but it points at a search we construct from the
+      // title — never at a URL the model produced, because that is the
+      // hallucinated citation this whole phase exists to remove. The distinction
+      // is invisible in the DOM unless asserted: both are <a href>.
+      const first = page.locator('a[href^="https://duckduckgo.com/?q="]').first();
+      await expect(first).toBeVisible();
+      await expect(first).toHaveAttribute("rel", /noopener/);
     }
 
     await expect(page.getByTestId("detail-source")).not.toContainText("grounded");

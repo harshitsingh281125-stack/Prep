@@ -311,8 +311,20 @@ describe("validateGroundedDetail — rejections", () => {
     ).toBeNull();
   });
 
-  it("rejects an empty resource list — grounding that selects nothing is a failure", () => {
-    expect(validateGroundedDetail(grounded({ resources: [] }), DOCS)).toBeNull();
+  // NOT a rejection — this used to be one, and that was the bug. See below.
+  it("ACCEPTS an empty selection: the model declining every document is an answer", () => {
+    // Regression. The prompt tells the model to be selective ("never pad the
+    // list"), so when retrieval surfaced one marginal document for "Monorepo vs
+    // Polyrepo strategies" the model correctly returned zero resources — and the
+    // validator threw the whole generation away, burned a retry getting the same
+    // honest answer, and metered both as `invalid`. Instructing a model to
+    // exercise judgement and then treating its judgement as malformed output is
+    // a contradiction in the design.
+    const detail = validateGroundedDetail(grounded({ resources: [] }), DOCS);
+    expect(detail).not.toBeNull();
+    expect(detail!.resources).toHaveLength(0);
+    // The ROUTE is what turns this into "fall back to ungrounded" — the
+    // validator's job is only to say the response was well-formed.
   });
 
   it("rejects a missing 'why', or one so long the model answered a different question", () => {

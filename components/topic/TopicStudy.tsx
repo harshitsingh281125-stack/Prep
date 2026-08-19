@@ -46,6 +46,29 @@ function sourceLabel(source: TopicDetail["source"]): string {
   return "template";
 }
 
+/**
+ * Where an UNVERIFIED resource points.
+ *
+ * Ungrounded resources have no `url` — the generator is never asked for one, on
+ * purpose, because a model-recalled URL is exactly the hallucinated citation
+ * this phase exists to remove (and an invented domain is a click into
+ * somebody's squatted namespace, not merely a 404).
+ *
+ * But "no link at all" is a poor answer for the user, who now has to copy a
+ * title into a search bar by hand. So the title becomes a link to a SEARCH for
+ * that title — a URL we construct ourselves, which therefore cannot be invented,
+ * cannot rot, and promises exactly what it delivers: "here is where to look",
+ * not "here is the document". The rendering says so too — a dotted underline and
+ * muted colour rather than the solid accent link a vetted resource gets.
+ *
+ * Derived at render time, never stored, for the same reason Phase 3 derives
+ * roadmap status: a stored search URL would be a second copy of the title that
+ * could drift out of sync with it.
+ */
+function searchUrl(title: string): string {
+  return `https://duckduckgo.com/?q=${encodeURIComponent(title)}`;
+}
+
 type SaveState = "idle" | "saving" | "saved";
 
 /**
@@ -369,18 +392,40 @@ export default function TopicStudy({
                         "is a link" and "was vetted" are the same condition —
                         the grounded generator is never asked for a URL, so a
                         model-recalled one can't reach this branch. */}
-                    {r.url ? (
-                      <a
-                        href={r.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: "14px", fontWeight: 500, color: "var(--accent)" }}
-                      >
-                        {r.title}
-                      </a>
-                    ) : (
-                      <div style={{ fontSize: "14px", fontWeight: 500 }}>{r.title}</div>
-                    )}
+                    <a
+                      href={r.url ?? searchUrl(r.title)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={
+                        r.url
+                          ? "Vetted link from Prep's corpus."
+                          : "Not in Prep's corpus — this opens a web search for the title, not a link the model produced."
+                      }
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 500,
+                        // A vetted destination reads as a real link; a search
+                        // reads as a lead to follow. Different promises, so they
+                        // must not look identical.
+                        color: r.url ? "var(--accent)" : "var(--text)",
+                        textDecoration: r.url ? undefined : "underline dotted",
+                        textUnderlineOffset: "3px",
+                      }}
+                    >
+                      {r.title}
+                      {!r.url && (
+                        <span
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: "10.5px",
+                            color: "var(--text-faint)",
+                            marginLeft: "6px",
+                          }}
+                        >
+                          search ↗
+                        </span>
+                      )}
+                    </a>
                     <div style={{ fontSize: "12px", color: "var(--text-faint)", fontFamily: MONO }}>{r.meta}</div>
                   </div>
 
@@ -414,7 +459,7 @@ export default function TopicStudy({
                   {r.unverified && (
                     <span
                       data-testid="unverified-chip"
-                      title="Generated from the model's memory — no vetted source in the corpus matched this topic, so nothing has checked it."
+                      title="Generated from the model's memory — no vetted source in the corpus matched this topic, so nothing has checked that this document exists. The title links to a web search, not to a URL the model produced."
                       style={{
                         fontFamily: MONO,
                         fontSize: "10.5px",

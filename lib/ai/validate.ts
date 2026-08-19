@@ -351,8 +351,25 @@ export const GROUNDED_DETAIL_SCHEMA: JsonSchema = {
 };
 
 export const GROUNDED_LIMITS = {
-  /** At least one selected document, else there was no point grounding. */
-  resourcesMin: 1,
+  /**
+   * ZERO is a legitimate answer, and making it one fixed a real bug.
+   *
+   * This was 1 ("at least one selected document, else there was no point
+   * grounding"). But the prompt tells the model to *be selective* — "if only two
+   * of the documents are worth reading, return two; never pad the list". So when
+   * retrieval surfaced one marginal document for "Monorepo vs Polyrepo
+   * strategies", the model correctly judged it irrelevant and returned an empty
+   * selection — and the validator threw the entire generation away, spent a
+   * retry getting the same honest answer, and metered both as `invalid`.
+   *
+   * Instructing a model to exercise judgement and then treating its judgement as
+   * malformed output is a contradiction in the design, not a model failure. An
+   * empty selection means "none of the retrieved documents earn a place here",
+   * which is the same *situation* as empty retrieval — so it is parsed
+   * successfully and the ROUTE routes it to the ungrounded path, instead of
+   * being punished as a schema violation.
+   */
+  resourcesMin: 0,
   /**
    * Hard reject above this. Deliberately generous: a `why` this long means the
    * model misunderstood the field (it wrote a summary, not a caption), which is

@@ -127,8 +127,15 @@ export async function POST(
       // it happens on our side of the boundary — the model never handled a URL.
       validate: (raw) => validateGroundedDetail(raw, docs),
     });
-    if (grounded.ok) detail = grounded.data;
-    else reason = grounded.reason;
+    // An EMPTY selection is a successful parse, not a failure — the model was
+    // asked to be selective and judged that none of the retrieved documents earn
+    // a place on this topic. That is the same situation as empty retrieval, so it
+    // falls through to the ungrounded path rather than being treated as malformed
+    // output. Treating it as malformed is what this used to do, and it cost a
+    // wasted retry plus two misleading `invalid` rows in ai_usage every time the
+    // model was being honest.
+    if (grounded.ok && grounded.data.resources.length > 0) detail = grounded.data;
+    else if (!grounded.ok) reason = grounded.reason;
   }
 
   // --- 4b. ungrounded generation (the Phase 4 path, unchanged) ------------
