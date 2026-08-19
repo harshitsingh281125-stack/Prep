@@ -29,10 +29,11 @@ if (typeof globalThis.WebSocket === "undefined") {
 //      is what manual suite RAG (tests/phase-4.5-rag.md) asks you to run.
 //
 // The OFF-DOMAIN cases at the end of the list are the important ones: they are
-// subjects a frontend-interview corpus genuinely has nothing for, so every one
-// of their scores must fall BELOW the floor. If any of them passes, the floor is
-// too low and topics outside the corpus are being grounded on whatever happens
-// to be nearest.
+// subjects from adjacent engineering disciplines this corpus deliberately does
+// not cover, so every one of their scores must fall BELOW the floor. If any
+// passes, the floor is too low and out-of-scope topics are being grounded on
+// whatever happens to be nearest. KEEP THIS LIST IN STEP WITH THE CORPUS — see
+// the note on OFF_DOMAIN below for the false alarm that happens when you do not.
 
 import { embed } from "@/lib/ai/gateway";
 import { ragMinSimilarity } from "@/lib/ai/config";
@@ -40,20 +41,51 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { buildRetrievalQuery } from "@/lib/rag/query";
 
 const IN_DOMAIN: [string, string][] = [
+  // Frontend — the original corpus.
   ["Reconciliation & keys", "React Internals"],
   ["Event loop & microtasks", "Core JS & Async"],
   ["debounce / throttle from scratch", "Coding & Communication"],
   ["Realtime: WS vs SSE", "Frontend System Design"],
   ["Reflow vs repaint", "Browser & Rendering"],
   ["STAR behavioral stories", "Coding & Communication"],
-  ["Performance budgets", "Browser & Rendering"],
+  ["Content Security Policy (CSP)", "Web Security"],
+  ["Utility types (ReturnType, Omit, Pick)", "TypeScript"],
+  // Backend, DSA and distributed systems — added by 0011. These MUST be in this
+  // list, not in OFF_DOMAIN, or the probe measures a boundary that no longer
+  // exists (which is exactly the bug this list once had).
+  ["Postgres query planner internals", "Databases"],
+  ["Kafka consumer group rebalancing", "Messaging"],
+  ["Circuit Breaker Pattern", "Microservices & Resiliency"],
+  ["JWT Structure and Security", "Authentication"],
+  ["Tree and Graph traversals (DFS, BFS)", "Algorithms"],
+  ["Consistent Hashing", "Scaling & Distributed Data"],
+  ["Distributed Tracing and OpenTelemetry", "Observability"],
 ];
 
-/** Subjects the corpus deliberately does not cover. All must fall below the floor. */
+/**
+ * Subjects the corpus deliberately does not cover. All must fall below the floor.
+ *
+ * THIS LIST HAS TO BE MAINTAINED WITH THE CORPUS, and forgetting that produced a
+ * false alarm worth recording. It originally held "Postgres query planner
+ * internals" and "Kafka consumer group rebalancing", which were genuinely
+ * off-domain against a frontend-only corpus. Migration 0011 then added Postgres
+ * and Kafka documentation on purpose — and this probe promptly reported
+ * "FLOOR IS TOO LOW: raise it above 0.744", because a deliberately-added
+ * document matched a query still labelled off-domain. The floor was fine; the
+ * FIXTURE was stale.
+ *
+ * So the entries below are chosen to be real engineering topics from adjacent
+ * disciplines this interview-prep corpus has no business covering — not
+ * nonsense, which would be too easy a test, and not anything a future expansion
+ * is likely to add.
+ */
 const OFF_DOMAIN: [string, string][] = [
-  ["Kubernetes pod autoscaling", "Infrastructure"],
-  ["Postgres query planner internals", "Databases"],
-  ["Kafka consumer group rebalancing", "Distributed Systems"],
+  ["Rust borrow checker and lifetimes", "Systems Programming"],
+  ["SwiftUI view lifecycle on iOS", "Mobile"],
+  ["Kubernetes operator custom resource definitions", "Platform Engineering"],
+  ["Backpropagation in neural networks", "Machine Learning"],
+  ["Unity shader graph and render pipelines", "Game Development"],
+  ["Embedded C interrupt service routines", "Firmware"],
 ];
 
 type MatchRow = { title: string; similarity: number; topic_area: string };

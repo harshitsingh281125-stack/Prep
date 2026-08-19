@@ -479,7 +479,7 @@ retrieval problem there.
 **The pipeline** (`/api/topics/[id]/detail`), 4 steps, all owned:
 1. Build a query from the topic name + its week title (`lib/rag/query.ts`, pure).
 2. `gateway.embed({ purpose: 'query' })` — same gateway, same cap, same metering.
-3. `match_resources()` — a SQL function: cosine top-5 over 48 vetted docs, above a
+3. `match_resources()` — a SQL function: cosine top-5 over 202 vetted docs, above a
    similarity floor.
 4. A reasoning-tier completion given those docs **numbered**.
 
@@ -507,7 +507,7 @@ and "Kafka consumer group rebalancing" **0.560** — both *above* my threshold.
 score ~0.55.** At 0.55 a backend topic would have been grounded on React docs and
 every link rendered with a green VERIFIED badge — the exact failure the feature
 exists to remove, wearing the badge that says it was fixed. Nothing would have
-errored and no test would have gone red. It's 0.62 now (above every off-domain score,
+errored and no test would have gone red. It's 0.64 now (above every off-domain score,
 below every relevant one), and the calibration probe is a checked-in script that
 exits non-zero if an off-domain query ever clears the floor. *Lesson: a threshold on
 embedding similarity is a property of the model-and-corpus pair, not a constant —
@@ -557,7 +557,7 @@ both halves are covered deterministically. What no automated test then claims is
 the *ranking* is good — that's a human reading real output, and I say so in the test
 docs rather than letting a green suite imply it.
 
-**Corpus curation.** 48 hand-picked references across 7 areas, weighted to primary
+**Corpus curation.** 202 hand-picked references across 26 areas, weighted to primary
 sources (MDN, the WHATWG HTML standard, react.dev, RFC 9111, web.dev). **Every URL
 was fetched and confirmed 200 before it went into the migration** — which caught one
 404 and one redirect onto a duplicate. Shipping links I was merely *confident* about

@@ -283,7 +283,7 @@ personal.
 create or replace function public.match_resources(
   query_embedding extensions.vector(1536),
   match_count     int   default 5,
-  min_similarity  float default 0.62
+  min_similarity  float default 0.64
 ) returns table (id uuid, topic_area text, title text, url text,
                  kind text, summary text, similarity float)
 language sql stable security invoker
@@ -642,13 +642,13 @@ mode (misclassification silently excludes the right documents) to solve a proble
 the embedding already solves, since cross-domain bleed shows up as a low score.
 **The number matters more than it looks:** it started at 0.55 and that was wrong —
 Gemini embeddings are not zero-centred, and unrelated text ("Kafka consumer group
-rebalancing" against a frontend corpus) still scores ~0.55–0.57. It is **0.62**,
+rebalancing") still scores ~0.55–0.57. It is **0.64**,
 above every off-domain score measured and below every relevant one, and
 `npm run probe:retrieval` re-checks that separation and exits non-zero if an
 off-domain query ever clears the floor.
 
 **Corpus seeding.** A **hand-curated seed migration** (`0008_resources_seed.sql`)
-of 48 vetted MDN / WHATWG / react.dev / web.dev / RFC / talk entries across 7
+of vetted MDN / WHATWG / react.dev / web.dev / RFC / spec entries across 26
 topic areas — small, honest, defensible, not scraped. **Every URL was fetched and
 confirmed to return 200 before it was written into the migration**, which caught a
 404 and a redirect-to-a-duplicate; shipping links one is merely confident about

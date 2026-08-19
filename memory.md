@@ -12,6 +12,45 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-08-14 · Phase 4.5: the RAG similarity floor is 0.64, re-measured after the
+  corpus grew — and a BROADER CORPUS SHRINKS THE SAFETY MARGIN.** The floor started
+  at an intuitive 0.55 (wrong — see the bug log), was measured to 0.62 against a
+  48-document frontend corpus with a margin of 0.052, and was re-measured at 202
+  documents across 26 areas: the best off-domain score had risen from 0.568 to
+  **0.616**, leaving 0.62 with a margin of **0.004**. **Why it moved:** the more the
+  corpus covers, the more of the world is genuinely *adjacent* to something it
+  holds — the 0.616 was "SwiftUI view lifecycle" against react.dev's "Lifecycle of
+  Reactive Effects", which is not an absurd match at all, and that is exactly the
+  problem. Raised to **0.64** (margin 0.024). **The cost was measured, not
+  assumed:** across 189 real topics, 182 still ground on 2+ documents, 6 fall to
+  one and 1 to none; the matches removed were fifth-place tails ("debounce /
+  throttle" → AWS backoff-with-jitter at 0.630), i.e. precisely the weak links that
+  would otherwise render with a green VERIFIED chip they had not earned. **The
+  generalisable point: a similarity threshold is not a constant of the model, it is
+  a property of the model-and-corpus pair, so growing the corpus is a change that
+  requires re-calibration** — which is why `npm run probe:retrieval` is a checked-in
+  script that exits non-zero rather than a number in a comment.
+
+- **2026-08-14 · Phase 4.5: corpus coverage is a maintained property, not a
+  milestone — hence `npm run probe:coverage`.** The corpus grew 48 → 83 → 118 → 202
+  documents across four migrations, and every expansion was driven by *measuring
+  against real generated roadmaps* rather than by intuition. The original curation
+  was done against `lib/seed/catalog.ts`, i.e. the SEED topic names — but the seed
+  is only the Rule 9 fallback, and the normal path is an AI-generated roadmap whose
+  topics range far wider. Result: 52/64 coverage on the first real roadmap, and
+  later 56 MISSING + 17 THIN out of 189 once the user's roadmaps moved into backend
+  and DSA. **THIN (exactly one weak match) is tracked separately from MISSING
+  because it is the more dangerous state:** a miss is labelled UNVERIFIED and is
+  honest, whereas one weak match renders as a vetted link with a green VERIFIED chip
+  on the wrong document ("Circuit Breaker Pattern" → *Martin Fowler: Micro
+  Frontends* @ 0.622). The workflow is now: `npm run probe:coverage` → paste its
+  output → curate a migration with every URL HTTP-verified → apply → `npm run
+  embed:corpus` → `npm run probe:retrieval`. **Across 202 curated URLs the
+  verification step caught 1 dead link, 13 silent redirects (MDN reorganised its
+  entire CSS section mid-phase; the AWS Builders Library moved domain) and 2 pages
+  that 403 automated clients** — every one of which would have shipped as a
+  "vetted" link on the strength of my confidence alone.
+
 - **2026-08-13 · Phase 4.5: `resources` is NOT "the table without RLS" — that plan
   was a security hole, and the corrected shape is RLS-on with a `true` read
   predicate.** Rules.md 5 and Architecture §5b both promised "the one table
@@ -574,6 +613,24 @@
   signup + profiles trigger + auth gate all verified against the live origin.
 
 ## Bugs hit + fixed (continued)
+
+- **2026-08-14 · Phase 4.5: my own calibration probe raised a false alarm, because
+  its fixture went stale when the corpus grew.** After migration 0011 widened the
+  corpus into backend/DSA/distributed systems, `npm run probe:retrieval` failed with
+  *"FLOOR IS TOO LOW: raise it above 0.744"*. The 0.744 was
+  `"Postgres query planner internals"` matching **PostgreSQL: Using EXPLAIN** — a
+  perfect result. The probe's hard-coded `OFF_DOMAIN` list still contained Postgres
+  and Kafka topics, which were genuinely off-domain against the original
+  frontend-only corpus and had just been deliberately brought *in* scope. **The
+  floor was fine; the test's definition of "outside the corpus" was a year out of
+  date by the standards of a corpus that changes weekly.** Fixed by moving those
+  entries to `IN_DOMAIN` and rewriting `OFF_DOMAIN` as topics from adjacent
+  engineering disciplines the corpus has no business covering (Rust lifetimes,
+  SwiftUI, Kubernetes CRDs, backpropagation, Unity shaders, embedded ISRs) — chosen
+  so a future expansion is unlikely to invalidate them again. **Lesson: a
+  calibration harness encodes an assumption about scope, so it is part of the thing
+  being changed, not a neutral observer of it. When you widen what a system covers,
+  the tests that assert what it does NOT cover are the first things to go stale.**
 
 - **2026-08-13 · Phase 4.5: RAG was 100% broken against the real provider while both
   test suites were green — because my fixtures didn't look like real model output.**

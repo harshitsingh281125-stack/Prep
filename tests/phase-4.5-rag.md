@@ -11,7 +11,7 @@ Companion docs: [README.md](./README.md) (harness + gotchas) ·
 
 ## What automation already covers — and what it deliberately cannot
 
-**Automated and green as of 2026-08-13:** Vitest **207/207**, Playwright **64/64**.
+**Automated and green as of 2026-08-14:** Vitest **210/210**, Playwright **64/64**.
 
 - Vitest: the grounding validator (every rejection path — out-of-range citation,
   duplicate citation, non-integer, unmappable kind, empty selection), the
@@ -42,13 +42,13 @@ Companion docs: [README.md](./README.md) (harness + gotchas) ·
 
 | # | Step |
 |---|------|
-| S1 | Migrations `0007_resources.sql` **and** `0008_resources_seed.sql` applied (SQL Editor). |
+| S1 | Migrations `0007_resources.sql` … `0011_resources_backend.sql` applied (SQL Editor) — 0007 is the schema, 0008–0011 are corpus batches. |
 | S2 | `.env.local` has `CORPUS_EMBED_USER_ID` = your own account's auth UID. |
-| S3 | `npm run embed:corpus` reports **`Embedded 48 row(s), 0 failed.`** |
+| S3 | `npm run embed:corpus` reports **`0 failed`** (or `Nothing to embed` if already done) |
 | S4 | `.env.local` has a working `GEMINI_API_KEY` and **no** `AI_PROVIDER=mock`. |
 | S5 | **Restart the dev server** after any `.env.local` change — Next reads env only at startup. This has cost this project a debugging cycle before (memory.md). |
 
-Verify with this in the SQL Editor — expect `48 / 48 / 7`:
+Verify with this in the SQL Editor — expect `202 / 202 / 26`:
 
 ```sql
 select count(*) total, count(embedding) embedded, count(distinct topic_area) areas
@@ -80,9 +80,9 @@ from public.resources;
 
 | ID | Area | Precondition | Steps | Expected | Pri |
 |----|------|--------------|-------|----------|-----|
-| RANK-01 | Calibration holds | S1–S5 | `npm run probe:retrieval` | Exits 0. Prints `Floor 0.62 separates them.` Every **OFF-DOMAIN** score is below 0.62 | P0 |
+| RANK-01 | Calibration holds | S1–S5 | `npm run probe:retrieval` | Exits 0 and prints `Floor 0.64 separates them.` Every **OFF-DOMAIN** score is below 0.64 | P0 |
 | RANK-02 | In-domain ranking | RANK-01 | Read the IN-DOMAIN block | For each topic, the top document is the one you'd pick yourself. **Fail if the best document is not in the top 2** | P0 |
-| RANK-03 | The floor's job | RANK-01 | Read the OFF-DOMAIN block (Kubernetes / Postgres / Kafka) | **Zero** documents pass. These score ~0.53–0.57 — above a naive 0.5 threshold, which is exactly why the floor is 0.62 | P0 |
+| RANK-03 | The floor's job | RANK-01 | Read the OFF-DOMAIN block (Rust / SwiftUI / Kubernetes / ML / Unity / firmware) | **Zero** documents pass. These score ~0.55–0.62 — well above a naive 0.5 threshold, which is why the floor is 0.64 and why it was re-raised when the corpus grew | P0 |
 | RANK-04 | Short lists are allowed | RANK-01 | Look at a topic where only 2 documents pass the floor | Two is a correct answer. A list of 5 for every topic would mean the floor isn't doing anything | P1 |
 
 ---
@@ -142,7 +142,7 @@ const h = {apikey:key, Authorization:`Bearer ${tok}`, 'Content-Type':'applicatio
 |----|------|--------------|-------|----------|-----|
 | COST-01 | Two calls per topic | Real provider, fresh topic | Note `/usage` "used today", generate detail, reload `/usage` | Increases by **2** — one embedding + one completion. Grounding is not free and the readout says so | P0 |
 | COST-02 | Embedding tier is labelled | COST-01 done | Look at the per-route breakdown for `/api/topics/detail` | Shows the calls; the embedding model appears in the model list | P1 |
-| COST-03 | Backfill isn't in your product numbers | S3 done as your own account | Open `/usage` as **qa-a** | The 48 corpus embeddings do **not** appear — they were metered against `CORPUS_EMBED_USER_ID` | P1 |
+| COST-03 | Backfill isn't in your product numbers | S3 done as your own account | Open `/usage` as **qa-a** | The corpus embeddings do **not** appear — they were metered against `CORPUS_EMBED_USER_ID` | P1 |
 | COST-04 | $/roadmap unaffected | Any | `/usage` | The $/roadmap figure still divides roadmap-route spend by roadmaps — topic-detail embeddings do not leak into it | P1 |
 
 ---
@@ -166,11 +166,11 @@ const h = {apikey:key, Authorization:`Bearer ${tok}`, 'Content-Type':'applicatio
 
 | ID | Area | Precondition | Steps | Expected | Pri |
 |----|------|--------------|-------|----------|-----|
-| DATA-01 | Every link resolves | S1–S3 | Spot-check 10 URLs from `select url from public.resources;` | All 200. (All 48 were HTTP-verified when the migration was written — this checks for rot) | P0 |
+| DATA-01 | Every link resolves | S1–S3 | Spot-check 10 URLs from `select url from public.resources;` | All 200. (All 202 were HTTP-verified when their migration was written — this checks for rot) | P0 |
 | DATA-02 | No duplicates | S1 | `select url, count(*) from public.resources group by url having count(*) > 1;` | Zero rows — the `unique` constraint holds | P1 |
-| DATA-03 | Re-runnable seed | S1–S2 | Run `0008_resources_seed.sql` a second time | Succeeds, still 48 rows (`on conflict do nothing`) | P1 |
-| DATA-04 | Re-embedding is safe | S3 | `npm run embed:corpus` again | Reports **nothing to embed**. Then `npm run embed:corpus -- --all` re-embeds all 48 | P1 |
-| DATA-05 | Areas are balanced | S1 | `select topic_area, count(*) from public.resources group by 1 order by 2 desc;` | 7 areas, 5–8 each; no area is empty | P2 |
+| DATA-03 | Re-runnable seed | S1–S2 | Run `0008_resources_seed.sql` a second time | Succeeds, row count unchanged (`on conflict do nothing`) | P1 |
+| DATA-04 | Re-embedding is safe | S3 | `npm run embed:corpus` again | Reports **nothing to embed**. Then `npm run embed:corpus -- --all` re-embeds everything | P1 |
+| DATA-05 | Areas are balanced | S1 | `select topic_area, count(*) from public.resources group by 1 order by 2 desc;` | 26 areas; no area is empty | P2 |
 
 ---
 

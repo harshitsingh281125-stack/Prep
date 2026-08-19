@@ -55,28 +55,40 @@ export const EMBEDDING_DIM = 1536;
  * empty retrieval possible, and empty retrieval is what routes a niche topic to
  * the honest `unverified` fallback (Rule 9).
  *
- * 0.62 IS MEASURED, NOT GUESSED — and the first guess was wrong, which is the
- * point. This started at 0.55, chosen by intuition. Probing the real corpus
- * (scripts/probe-retrieval.ts, 2026-08-13) showed that would have admitted
- * everything:
+ * THE VALUE IS MEASURED, AND IT HAS BEEN RE-MEASURED TWICE. That is the point:
+ * it is a property of the model-and-corpus PAIR, so it moves when either moves.
  *
- *   in-domain  "Reconciliation & keys" -> 0.761 … 0.642   (correct documents)
- *              "Event loop & microtasks" -> 0.749 … 0.688
- *              "debounce / throttle from scratch" -> 0.649, 0.642
- *   OFF-domain "Postgres query planner internals" -> 0.568 … 0.562
- *              "Kafka consumer group rebalancing" -> 0.560 … 0.544
- *              "Kubernetes pod autoscaling" -> 0.555 … 0.534
+ * Round 1 (2026-08-13, 48-document frontend corpus). Started at 0.55, chosen by
+ * intuition. Probing with deliberately off-domain queries showed that would have
+ * admitted everything:
+ *
+ *   in-domain  "Reconciliation & keys"            0.761 … 0.642  (correct docs)
+ *   OFF-domain "Postgres query planner internals" 0.568 … 0.562  <- ABOVE 0.55
+ *              "Kafka consumer group rebalancing" 0.560 … 0.544
  *
  * Gemini's embeddings are NOT zero-centred: two texts with nothing in common
- * still score ~0.55, so "cosine similarity above a half" means nothing at all
- * here. A backend topic would have been grounded on React documentation with
+ * still score ~0.55, so "cosine similarity above a half" means nothing here. At
+ * 0.55 a backend topic would have been grounded on React documentation with
  * every link marked VERIFIED — the exact failure this phase exists to prevent,
- * reintroduced by a plausible-looking constant.
+ * reintroduced by a plausible-looking constant. Raised to 0.62, margin 0.052.
  *
- * 0.62 sits above every off-domain score observed (max 0.568) and below every
- * genuinely relevant document (min 0.642). Re-run the probe after any change to
- * the embedding model or the corpus; the number is a property of that pairing,
- * not a universal one.
+ * Round 2 (2026-08-14, 202 documents across 26 areas). Migrations 0009-0011
+ * widened the corpus into security, TypeScript, testing, databases, DSA,
+ * distributed systems and more. A BROADER CORPUS SHRINKS THE MARGIN, because
+ * more of the world is now genuinely adjacent to something we hold: the best
+ * off-domain score rose to 0.616 ("SwiftUI view lifecycle" against react.dev's
+ * "Lifecycle of Reactive Effects" — not an absurd match at all), leaving 0.62
+ * with a margin of 0.004. Raised to 0.64, margin 0.024.
+ *
+ * What 0.64 costs, measured rather than assumed: across 189 real topics,
+ * 182 still ground on 2+ documents, 6 drop to one and 1 to none. The matches it
+ * removed were fifth-place tails ("debounce / throttle" -> AWS backoff-with-
+ * jitter at 0.630), which are precisely the weak links that would otherwise
+ * render with a green VERIFIED chip they have not earned.
+ *
+ * Re-run `npm run probe:retrieval` after ANY corpus or model change, and keep
+ * its OFF_DOMAIN list in step with what the corpus now covers — a stale fixture
+ * there produced a false "FLOOR IS TOO LOW" alarm once already.
  *
  * Env-overridable for the same reason AI_DAILY_CALL_CAP is, and it is worth
  * being precise that this is a TEST-REACHABILITY override, not a weakening:
@@ -87,7 +99,7 @@ export const EMBEDDING_DIM = 1536;
  * BOTH branches of the pipeline reachable without a live provider. The floor's
  * real value is exercised by the manual RAG suite against real embeddings.
  */
-export const DEFAULT_RAG_MIN_SIMILARITY = 0.62;
+export const DEFAULT_RAG_MIN_SIMILARITY = 0.64;
 
 export function ragMinSimilarity(): number {
   const raw = Number(process.env.RAG_MIN_SIMILARITY);

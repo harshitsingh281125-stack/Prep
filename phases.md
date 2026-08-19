@@ -169,7 +169,10 @@ embedded (48/48). **QA gate (Rule 27) still open** — manual matrix at
   error, not a flaky one) and a width check at the gateway boundary.
 - **Embedding width settled: `vector(1536)`**, from a live probe — the model returns
   3072 natively, but **pgvector cannot index a `vector` above 2000 dims**.
-- **Corpus:** 48 hand-curated entries across 7 topic areas, seeded by SQL migration;
+- **Corpus:** grown to **202 hand-curated entries across 26 topic areas** over four
+  SQL migrations (0008 frontend → 0009 security/TS/build/a11y → 0010 testing/CSS/
+  networking/forms/i18n/rendering/observability → 0011 backend, DSA, databases,
+  distributed systems, messaging, caching, auth, API design);
   **every URL fetched and confirmed 200 before it was written** (caught a 404 and a
   redirect-to-duplicate). `npm run embed:corpus` computes the vectors through
   `gateway.embed()`.
@@ -181,7 +184,8 @@ embedded (48/48). **QA gate (Rule 27) still open** — manual matrix at
 - **Retrieval gate is the floor, not a `topic_area` filter** (the filter was specced
   and dropped — the embedding already handles cross-domain bleed, and a keyword
   classifier would only add a way to silently exclude the right documents).
-  **The floor is 0.62, measured not guessed:** at the intuitive 0.55, off-domain
+  **The floor is 0.64, measured not guessed and re-measured as the corpus grew:**
+  at the intuitive 0.55, off-domain
   topics ("Postgres query planner" → 0.568) would have been grounded on frontend
   docs and badged VERIFIED. Gemini embeddings aren't zero-centred.
 - Empty retrieval → generated `unverified` resources → seeded template. Three
