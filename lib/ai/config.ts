@@ -208,3 +208,17 @@ export function providerName(): "gemini" | "mock" | "none" {
   if (process.env.AI_PROVIDER === "mock") return "mock";
   return process.env.GEMINI_API_KEY ? "gemini" : "none";
 }
+
+/**
+ * How many recent `ai_usage` rows the cost readout aggregates.
+ *
+ * The readout is a WINDOW, not a lifetime total, and this constant exists so the
+ * API and the page cannot disagree about that — and so the field can be named
+ * for what it is. It used to be an unnamed `.limit(500)` in two places whose
+ * result was returned as `allTime`, which stopped being true the moment a user
+ * crossed 500 dispatches: the count pinned at exactly 500 and every derived
+ * figure ($/roadmap, cache hit-rate, fallback rate) silently became "over the
+ * last 500 calls" while still being labelled all-time. On a screen whose entire
+ * selling point is not overstating things, that was the wrong kind of bug.
+ */
+export const USAGE_WINDOW = 500;

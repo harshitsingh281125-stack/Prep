@@ -15,10 +15,10 @@ Manual matrices, one per phase:
 [phase-4.5-rag.md](./phase-4.5-rag.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **207** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
-+ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 26 rag) ·
+**Current counts:** Vitest **210** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
++ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag) ·
 Playwright **64** (10 Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG), all green as
-of 2026-08-13.
+of 2026-08-14.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 
@@ -116,8 +116,25 @@ All produced failures that *looked* like app bugs and weren't — see memory.md.
    `baseURL` fixture; `request.newContext({ baseURL })` accepts it. Third instance of
    this exact shape in the project (see gotchas 1 and 4).
 7. **Read the response shape before asserting on it.** Two Phase 4.5 specs asserted
-   `body.summary.calls` from `/api/usage`, which returns `today` and `allTime`. Cost
+   `body.summary.calls` from `/api/usage`, which returns `today` and `recent`. Cost
    a red run that had nothing to do with the feature.
+8. **Never assert that a WINDOWED aggregate grows.** AI-16 asserted
+   `allTime.calls` strictly increased after a generation. `/api/usage` aggregates at
+   most `USAGE_WINDOW` (500) rows, so the moment qa-a crossed 500 lifetime
+   dispatches the count pinned at 500 and the assertion became structurally
+   unpassable — a test that could only ever go red from then on, for a reason
+   unrelated to the code under test. It now asserts `usedToday`, which comes from an
+   exact `COUNT`. (The field was also renamed `allTime` → `recent`, because the
+   readout was labelling a capped window as a lifetime total.)
+
+8. **Leftover rows from an ABORTED run look like a performance problem.** `afterEach`
+   cleanup only runs for tests that finish. An interrupted run leaves roadmaps behind,
+   the next run starts at the 3-roadmap quota, `generateRoadmap()` returns **403**, and
+   the specs then time out waiting for cards and dashboard rows that were never
+   created — which presented once as "the suite got 6x slower" (20.5 min, 7 red across
+   three files, a different set each run). The `setup` project now clears each QA
+   user's roadmaps after login, so an aborted run self-heals. If you see widespread
+   timeouts, check for a `403` in the fixture message before profiling anything.
 
 Corollary: **when a test claims the app is broken, reproduce it outside the harness
 (curl / a probe / `node -e`) before changing app code.** Four of this project's red

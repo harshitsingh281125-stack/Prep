@@ -2,7 +2,7 @@ import Link from "next/link";
 import Header from "@/components/shell/Header";
 import ContentArea from "@/components/shell/ContentArea";
 import { createClient } from "@/lib/supabase/server";
-import { DAILY_CALL_CAP, MODELS, billingMode, providerName } from "@/lib/ai/config";
+import { DAILY_CALL_CAP, MODELS, USAGE_WINDOW, billingMode, providerName } from "@/lib/ai/config";
 import { summarize, type UsageRow } from "@/lib/ai/cost";
 import { startOfUtcDay } from "@/lib/ai/gateway";
 
@@ -36,13 +36,16 @@ export default async function UsagePage() {
     .from("ai_usage")
     .select("route, tier, model, input_tokens, output_tokens, cached_input_tokens, cost_usd, status, attempts, created_at")
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(USAGE_WINDOW);
 
   const all = (rows ?? []) as (UsageRow & { created_at: string })[];
   const dayStart = startOfUtcDay(new Date()).toISOString();
   const today = all.filter((r) => r.created_at >= dayStart);
 
   const s = summarize(all);
+  // The breakdown below aggregates at most USAGE_WINDOW dispatches, so say so
+  // when it is capped rather than letting the figures read as a lifetime total.
+  const truncated = all.length >= USAGE_WINDOW;
   const usedToday = today.length;
   const remaining = Math.max(0, DAILY_CALL_CAP - usedToday);
   const capPct = Math.min(100, Math.round((usedToday / DAILY_CALL_CAP) * 100));
@@ -55,7 +58,11 @@ export default async function UsagePage() {
     <>
       <Header
         title="AI usage"
-        subtitle="What the gateway spent, and what it would cost on a paid tier."
+        subtitle={
+          truncated
+            ? `What the gateway spent over the last ${USAGE_WINDOW} calls, and what it would cost on a paid tier.`
+            : "What the gateway spent, and what it would cost on a paid tier."
+        }
         tag={
           <span
             style={{

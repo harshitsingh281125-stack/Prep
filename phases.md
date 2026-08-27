@@ -148,13 +148,30 @@ and month-scale timelines parsing as weeks.
   generate a topic's study material and its recall cards on demand; usage + cost
   visible on `/usage`; caps enforced; kill the key and watch every flow still work.
 
-## Phase 4.5 — RAG: ground topic resources on a curated corpus
+## Phase 4.5 — RAG: ground topic resources on a curated corpus ✅ DONE (2026-08-14)
 **Goal:** kill hallucinated/dead resource links by retrieving over vetted docs —
 the *only* genuine retrieval problem in Prep, so the only place RAG earns its keep.
-**Status:** built; **Vitest 207/207, Playwright 64/64 green (2026-08-13)**;
-migrations `0007_resources.sql` + `0008_resources_seed.sql` applied and the corpus
-embedded (48/48). **QA gate (Rule 27) still open** — manual matrix at
-[tests/phase-4.5-rag.md](./tests/phase-4.5-rag.md) awaiting a run.
+**Status:** built + tested (Vitest **210/210**, Playwright **64/64**) — QA gate
+closed, Rule 27. Migrations `0007`–`0011` applied; corpus **202/202 embedded across
+26 areas**. Branch `phase-4.5-rag` / PR open.
+See [tests/phase-4.5-rag.md](./tests/phase-4.5-rag.md).
+**On the manual pass, stated precisely because a status line gets read back as
+fact:** the project owner reported running the matrix and reported no failures. The
+matrix has **45 cases across 7 suites** (LIVE 9, RANK 4, FALL 8, SEC 7, COST 4, UI 8,
+DATA 5); a per-case Pass/Fail ledger was **not** recorded, so unlike Phases 3 and 4
+this phase has no case-by-case evidence of which awkward-setup rows (the eight FALL
+env-edit-plus-restart cases, the browser-console SEC cases) were exercised versus
+eyeballed. Independently re-verified by me at close: migrations applied, corpus
+202/202 embedded with 0 duplicate URLs, anon INSERT/DELETE on `resources` both 401
+with all 202 rows intact, floor calibration exits 0 with margin 0.024, and
+build/tsc/lint clean.
+**Five defects found and fixed during the phase** (all in memory.md) — three of them
+found by the owner using the real app while both automated suites were green:
+the 90-character caption limit that rejected every grounded generation, the
+validator punishing the model for the selectivity the prompt demanded, the corpus
+being curated against the seed catalog rather than real generated roadmaps, plus a
+`/usage` window mislabelled as all-time and a calibration probe that could report
+PASS having measured nothing.
 - `pgvector` enabled; the **global `resources`** table (topic_area, title, url, kind,
   summary, `vector(1536)`) with an HNSW cosine index, plus a `match_resources()` SQL
   function (supabase-js cannot express `order by embedding <=> $1`).

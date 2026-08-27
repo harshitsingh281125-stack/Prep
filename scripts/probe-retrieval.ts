@@ -103,6 +103,11 @@ async function main() {
 
   let worstInDomain = 1;
   let bestOffDomain = 0;
+  // Counted so the summary cannot report a PASS it never measured — see the
+  // guard at the end of this function.
+  let measuredIn = 0;
+  let measuredOff = 0;
+  let failures = 0;
 
   for (const [label, cases] of [
     ["IN-DOMAIN", IN_DOMAIN],
@@ -124,6 +129,7 @@ async function main() {
 
       if (!res.ok) {
         console.log(`\n■ ${topicName} -> EMBED FAILED (${res.reason})`);
+        failures += 1;
         continue;
       }
 
@@ -136,6 +142,7 @@ async function main() {
 
       if (error) {
         console.log(`\n■ ${topicName} -> RPC ERROR: ${(error as { message: string }).message}`);
+        failures += 1;
         continue;
       }
 
@@ -145,8 +152,13 @@ async function main() {
         console.log(
           `   ${passes ? "PASS" : "    "} ${r.similarity.toFixed(3)}  [${r.topic_area}] ${r.title}`
         );
-        if (label === "IN-DOMAIN" && passes) worstInDomain = Math.min(worstInDomain, r.similarity);
-        if (label !== "IN-DOMAIN") bestOffDomain = Math.max(bestOffDomain, r.similarity);
+        if (label === "IN-DOMAIN") {
+          measuredIn += 1;
+          if (passes) worstInDomain = Math.min(worstInDomain, r.similarity);
+        } else {
+          measuredOff += 1;
+          bestOffDomain = Math.max(bestOffDomain, r.similarity);
+        }
       }
     }
   }
@@ -155,6 +167,25 @@ async function main() {
     `\n---\nBest OFF-domain score: ${bestOffDomain.toFixed(3)}` +
       `   Worst admitted in-domain score: ${worstInDomain.toFixed(3)}`
   );
+
+  // A CALIBRATION THAT MEASURED NOTHING MUST NOT REPORT A PASS.
+  //
+  // This guard exists because the script did exactly that: on a run where the
+  // provider was rate-limiting, every embedding failed, both accumulators kept
+  // their initial values (0 and 1), and the summary printed
+  // "Floor 0.64 separates them. Margin: 0.640." while exiting 0. The numbers
+  // were not a measurement, they were the absence of one — and a green tick over
+  // an assertion that never ran is the most dangerous result a check can give
+  // (the same shape as Phase 4's conditionally-skipped security tests).
+  if (failures > 0 || measuredIn === 0 || measuredOff === 0) {
+    console.log(
+      `\nCALIBRATION DID NOT RUN: ${failures} query/queries failed ` +
+        `(${measuredIn} in-domain and ${measuredOff} off-domain measurements taken). ` +
+        `The numbers above are NOT a result. Usually the provider is rate-limiting — ` +
+        `wait a minute and re-run.`
+    );
+    process.exit(1);
+  }
   if (bestOffDomain >= floor) {
     console.log(
       `FLOOR IS TOO LOW: an off-domain topic would be grounded. Raise it above ${bestOffDomain.toFixed(3)}.`

@@ -47,11 +47,68 @@ async function loginAndSave(
   await page.context().storageState({ path: file });
 }
 
+/**
+ * Delete every roadmap this test user still owns.
+ *
+ * WHY THIS RUNS BEFORE EVERY SUITE. Specs clean up their own roadmaps in
+ * `afterEach`, which is correct — right up until a run does not finish. An
+ * interrupted or crashed run leaves rows behind, the next run starts at the
+ * 3-roadmap quota (Rule 18), and `generateRoadmap` returns **403**.
+ *
+ * That failure does not look like a quota failure. It surfaces as specs timing
+ * out waiting for cards or dashboard rows that were never created — which is how
+ * a leftover-rows problem once presented as "the app got 6x slower", with a
+ * 20-minute run and seven red tests across three spec files. It has now bitten
+ * this project three times (Phase 2, and twice in Phase 4.5; see memory.md).
+ *
+ * Per-test cleanup handles the happy path; this handles the aborted one. The two
+ * QA accounts are dedicated to the suite (tests/README.md), so clearing their
+ * roadmaps at setup is safe — and it makes an interrupted run self-healing
+ * instead of something that silently poisons the next one.
+ *
+ * Reads through PostgREST under the user's own session, so RLS still scopes it to
+ * that user: this cannot touch anyone else's data even by mistake.
+ */
+async function clearRoadmaps(page: import("@playwright/test").Page, label: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return;
+
+  const cookies = await page.context().cookies();
+  const parts = cookies
+    .filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => c.value);
+  if (parts.length === 0) return;
+
+  let raw = decodeURIComponent(parts.join(""));
+  if (raw.startsWith("base64-")) raw = Buffer.from(raw.slice(7), "base64").toString("utf8");
+  let token = "";
+  try {
+    token = JSON.parse(raw)?.access_token ?? "";
+  } catch {
+    return;
+  }
+  if (!token) return;
+
+  const headers = { apikey: key, Authorization: `Bearer ${token}` };
+  const listed = await page.request.get(`${url}/rest/v1/roadmaps?select=id`, { headers });
+  if (!listed.ok()) return;
+
+  const rows = (await listed.json()) as { id: string }[];
+  if (rows.length === 0) return;
+
+  // Deleting a roadmap cascades its weeks, topics, notes, cards and sessions.
+  await page.request.delete(`${url}/rest/v1/roadmaps?id=not.is.null`, { headers });
+  console.log(`[setup] cleared ${rows.length} leftover roadmap(s) for ${label}`);
+}
+
 setup("authenticate user A", async ({ page }) => {
   const email = process.env.QA_A_EMAIL;
   const password = process.env.QA_A_PASSWORD;
   if (!email || !password) throw new Error("Set QA_A_EMAIL / QA_A_PASSWORD in .env.test.");
   await loginAndSave(page, email, password, `${AUTH_DIR}/userA.json`);
+  await clearRoadmaps(page, "user A");
 });
 
 setup("authenticate user B", async ({ page }) => {
@@ -59,4 +116,5 @@ setup("authenticate user B", async ({ page }) => {
   const password = process.env.QA_B_PASSWORD;
   if (!email || !password) throw new Error("Set QA_B_EMAIL / QA_B_PASSWORD in .env.test.");
   await loginAndSave(page, email, password, `${AUTH_DIR}/userB.json`);
+  await clearRoadmaps(page, "user B");
 });

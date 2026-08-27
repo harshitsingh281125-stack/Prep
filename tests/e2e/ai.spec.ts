@@ -302,7 +302,7 @@ test.describe("Metering and the daily cap", () => {
     expect(u.models.reasoning).toBeTruthy();
     expect(u.models.classification).toBeTruthy();
     // Every dispatch is accounted for by status — no silent third category.
-    expect(u.allTime.ok + u.allTime.invalid + u.allTime.error).toBe(u.allTime.calls);
+    expect(u.recent.ok + u.recent.invalid + u.recent.error).toBe(u.recent.calls);
   });
 
   // AI-14 — the honesty property. On the free tier nothing was charged, and the
@@ -312,11 +312,11 @@ test.describe("Metering and the daily cap", () => {
     const u = await res.json();
 
     if (u.billing === "free") {
-      expect(u.allTime.actualUsd).toBe(0);
+      expect(u.recent.actualUsd).toBe(0);
     }
     // The projection is always ≥ 0 and never below the charged amount.
-    expect(u.allTime.projectedUsd).toBeGreaterThanOrEqual(0);
-    expect(u.allTime.projectedWithoutCacheUsd).toBeGreaterThanOrEqual(u.allTime.projectedUsd);
+    expect(u.recent.projectedUsd).toBeGreaterThanOrEqual(0);
+    expect(u.recent.projectedWithoutCacheUsd).toBeGreaterThanOrEqual(u.recent.projectedUsd);
   });
 
   // AI-15 — the usage screen renders the cap meter from real rows.
@@ -345,7 +345,12 @@ test.describe("Metering and the daily cap", () => {
     const after = await (await page.request.get("/api/usage")).json();
     // Strictly greater: the dispatch is metered whether it succeeded, came back
     // malformed, or errored. That is the point of metering failures.
-    expect(after.allTime.calls).toBeGreaterThan(before.allTime.calls);
+    //
+    // Asserted on usedToday, NOT on the `recent` window. `recent` aggregates at
+    // most USAGE_WINDOW rows, so once an account crosses that many lifetime
+    // dispatches its count pins at the cap and can never increase — this
+    // assertion used to read `allTime.calls` and became structurally unpassable
+    // the day qa-a crossed 500 rows. `usedToday` comes from an exact COUNT.
     expect(after.usedToday).toBeGreaterThan(before.usedToday);
   });
 });
@@ -418,7 +423,7 @@ test.describe("ai_usage RLS — the cap cannot be self-reset", () => {
     const token = await accessToken(page);
     test.skip(!token, "Could not read the Supabase session token from localStorage.");
 
-    const countBefore = (await (await page.request.get("/api/usage")).json()).allTime.calls;
+    const countBefore = (await (await page.request.get("/api/usage")).json()).recent.calls;
 
     const res = await request.delete(`${SUPABASE_URL}/rest/v1/ai_usage?id=not.is.null`, {
       headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, Prefer: "return=representation" },
@@ -429,7 +434,7 @@ test.describe("ai_usage RLS — the cap cannot be self-reset", () => {
     // what must NOT happen is rows disappearing.
     expect([200, 204, 401, 403, 404]).toContain(res.status());
 
-    const countAfter = (await (await page.request.get("/api/usage")).json()).allTime.calls;
+    const countAfter = (await (await page.request.get("/api/usage")).json()).recent.calls;
     expect(countAfter).toBe(countBefore);
   });
 
@@ -475,8 +480,8 @@ test.describe("ai_usage RLS — the cap cannot be self-reset", () => {
       // Both succeed (each sees their own), and B's routes are B's alone.
       expect(usageB.cap).toBe(usageA.cap);
       // If A has spend and B has none, B must not inherit A's totals.
-      if (usageA.allTime.calls > 0 && usageB.allTime.calls === 0) {
-        expect(usageB.allTime.projectedUsd).toBe(0);
+      if (usageA.recent.calls > 0 && usageB.recent.calls === 0) {
+        expect(usageB.recent.projectedUsd).toBe(0);
       }
     } finally {
       await contextB.close();

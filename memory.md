@@ -614,6 +614,30 @@
 
 ## Bugs hit + fixed (continued)
 
+- **2026-08-14 · Phase 4.5 (harness): leftover rows from an ABORTED run presented as
+  "the app got six times slower".** Symptom at the close of the phase: a suite that
+  had been running 64/64 in 3.5 minutes took **20.5 minutes and failed 7 tests**
+  across three spec files, every failure a 44s–1.1m timeout, and a *different* set of
+  tests each run. That reads like a performance regression from the RAG work — an
+  extra embedding plus a pgvector round trip on every topic-detail call. **Measured
+  instead of assumed:** `/recall` rendered in 0.5s warm, memory and CPU had headroom
+  (7.3 GB free, load 2.9 on 12 cores), and the app logged no errors. Running the
+  failing specs alone then printed the real cause from the fixture's own message —
+  **`Roadmap generation failed with 403`**. An earlier interrupted run had left three
+  roadmaps behind, putting the test user at the 3-roadmap quota (Rule 18), so every
+  `generateRoadmap()` 403'd and the specs sat waiting for cards and dashboard rows
+  that were never created. Deleting the leftovers restored 64/64 in 4.8 minutes.
+  **Why it was worth more than a cleanup:** `afterEach` cleanup is correct for runs
+  that *finish*, and this project has now been bitten three times by runs that don't
+  (Phase 2, and twice here). So the fix is structural, not another manual delete: the
+  `setup` project now clears each QA user's roadmaps after login, through PostgREST
+  under that user's own session so RLS scopes it to them. Verified by deliberately
+  planting three leftovers and watching the suite self-heal (`[setup] cleared 3
+  leftover roadmap(s) for user A`, then 64/64). **Lesson: per-test cleanup guarantees
+  nothing about the run that crashed before it; a shared-DB suite needs a
+  precondition it establishes, not one it inherits — and quota exhaustion is
+  especially nasty because it surfaces as a timeout somewhere else entirely.**
+
 - **2026-08-14 · Phase 4.5: my own calibration probe raised a false alarm, because
   its fixture went stale when the corpus grew.** After migration 0011 widened the
   corpus into backend/DSA/distributed systems, `npm run probe:retrieval` failed with
@@ -977,6 +1001,46 @@
   code bug" interview story.
 
 ## Verified subsystems (explain-cold ready)
+
+- **2026-08-14 · Phase 4.5 RAG — grounding topic resources on a curated corpus.**
+  Vitest **210/210** (29 RAG: the grounding validator's every rejection path plus the
+  real-length regression cases, the retrieval-query builder, the corpus-search
+  failure-is-empty contract; 16 embed: cap/width/no-retry/metering; plus 165 from
+  Phases 1–4, no regressions) · Playwright **64/64** (13 RAG: both branches on two
+  test servers that differ only in the similarity floor, and the four corpus-RLS
+  cases) · migrations `0007`–`0011` applied, corpus **202/202 embedded across 26
+  areas**, floor calibration exits 0 at margin 0.024.
+  **On the manual pass, recorded precisely:** the owner reported running the 45-case
+  matrix with no failures, but **no per-case Pass/Fail ledger was kept**, so this
+  phase — unlike Phases 3 and 4 — has no case-level evidence of which awkward-setup
+  rows were exercised versus eyeballed. What I re-verified independently at close:
+  corpus counts and zero duplicate URLs, anon INSERT and DELETE on `resources` both
+  401 with all 202 rows intact, and build/tsc/lint clean.
+  **Five real defects found during the phase, and the pattern matters more than the
+  count: THREE were found by the owner using the real app while both automated suites
+  were green.** (1) A 90-character cap on the resource caption rejected *every*
+  grounded generation — real Gemini writes 200–220 — so the feature was 100% broken
+  behind a Rule 9 fallback that made it invisible; the mock provider's short fixture
+  strings hid it. (2) The validator rejected an empty selection, punishing the model
+  for the selectivity the prompt explicitly demanded. (3) The corpus was curated
+  against the seed catalog rather than against real generated roadmaps, so most of a
+  plan fell back to unverified. (4) `/usage` labelled a 500-row window as all-time.
+  (5) The calibration probe could report PASS having measured nothing.
+  **What is now demoable:** open a topic → press Generate → resources are real,
+  clickable, hand-vetted links carrying a green VERIFIED chip and a source label
+  reading "grounded · vetted sources"; open a topic the corpus has nothing for →
+  the same flow completes with amber UNVERIFIED resources whose titles link to a
+  search rather than to any URL a model produced; `/usage` shows two metered calls
+  per grounded topic, so the price of grounding is a number rather than a claim.
+  **The explain-cold claims this backs:** why the model is never asked for a URL and
+  cites documents by index instead (a hallucinated citation is unrepresentable, not
+  merely rejected); why `resources` is the one table with no `user_id` *predicate*
+  rather than the one table with no RLS (on Supabase, "no RLS" on a public table
+  means world-writable); why the embedding width is 1536 (pgvector cannot index above
+  2000 dims) rather than the model's native 3072; why the similarity floor is
+  measured against queries you know should fail, and why it had to be *raised* as the
+  corpus grew (a broader corpus makes more of the world genuinely adjacent); and why
+  the E2E suite runs two servers differing in exactly one environment variable.
 
 - **2026-08-12 · Phase 4 AI Gateway + real generation — QA gate closed, verified
   end-to-end.** Vitest **165/165** (25 schema validation incl. the "model writes

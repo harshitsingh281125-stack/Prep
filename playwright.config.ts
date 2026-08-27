@@ -40,6 +40,22 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
+
+  // 60s, not Playwright's 30s default — and this is a measurement, not a guess.
+  //
+  // The suite runs against `next dev`, which compiles each route on its FIRST
+  // request. Measured on this machine: an authenticated `/recall` render takes
+  // ~7.6s cold and ~0.5s warm. That was comfortably inside 30s until Phase 4.5
+  // added a SECOND dev server (see webServer below) — now two Next instances
+  // compile the same routes in parallel, and a cold `page.goto("/recall")` can
+  // exceed 30s under that contention. Six recall/ai specs failed exactly that
+  // way, all with the same `page.goto: Test timeout` signature, while curl
+  // against the same app returned 200 in half a second.
+  //
+  // Raising the budget is the honest fix because the app is not slow — the
+  // FIRST COMPILE is, and only in dev. Verified outside the harness before
+  // changing anything, per the standing rule in tests/README.md.
+  timeout: 60_000,
   reporter: [["list"], ["html", { open: "never" }]],
 
   use: {
