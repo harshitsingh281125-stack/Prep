@@ -12,6 +12,126 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-08-14 · Phase 4.5: the RAG similarity floor is 0.64, re-measured after the
+  corpus grew — and a BROADER CORPUS SHRINKS THE SAFETY MARGIN.** The floor started
+  at an intuitive 0.55 (wrong — see the bug log), was measured to 0.62 against a
+  48-document frontend corpus with a margin of 0.052, and was re-measured at 202
+  documents across 26 areas: the best off-domain score had risen from 0.568 to
+  **0.616**, leaving 0.62 with a margin of **0.004**. **Why it moved:** the more the
+  corpus covers, the more of the world is genuinely *adjacent* to something it
+  holds — the 0.616 was "SwiftUI view lifecycle" against react.dev's "Lifecycle of
+  Reactive Effects", which is not an absurd match at all, and that is exactly the
+  problem. Raised to **0.64** (margin 0.024). **The cost was measured, not
+  assumed:** across 189 real topics, 182 still ground on 2+ documents, 6 fall to
+  one and 1 to none; the matches removed were fifth-place tails ("debounce /
+  throttle" → AWS backoff-with-jitter at 0.630), i.e. precisely the weak links that
+  would otherwise render with a green VERIFIED chip they had not earned. **The
+  generalisable point: a similarity threshold is not a constant of the model, it is
+  a property of the model-and-corpus pair, so growing the corpus is a change that
+  requires re-calibration** — which is why `npm run probe:retrieval` is a checked-in
+  script that exits non-zero rather than a number in a comment.
+
+- **2026-08-14 · Phase 4.5: corpus coverage is a maintained property, not a
+  milestone — hence `npm run probe:coverage`.** The corpus grew 48 → 83 → 118 → 202
+  documents across four migrations, and every expansion was driven by *measuring
+  against real generated roadmaps* rather than by intuition. The original curation
+  was done against `lib/seed/catalog.ts`, i.e. the SEED topic names — but the seed
+  is only the Rule 9 fallback, and the normal path is an AI-generated roadmap whose
+  topics range far wider. Result: 52/64 coverage on the first real roadmap, and
+  later 56 MISSING + 17 THIN out of 189 once the user's roadmaps moved into backend
+  and DSA. **THIN (exactly one weak match) is tracked separately from MISSING
+  because it is the more dangerous state:** a miss is labelled UNVERIFIED and is
+  honest, whereas one weak match renders as a vetted link with a green VERIFIED chip
+  on the wrong document ("Circuit Breaker Pattern" → *Martin Fowler: Micro
+  Frontends* @ 0.622). The workflow is now: `npm run probe:coverage` → paste its
+  output → curate a migration with every URL HTTP-verified → apply → `npm run
+  embed:corpus` → `npm run probe:retrieval`. **Across 202 curated URLs the
+  verification step caught 1 dead link, 13 silent redirects (MDN reorganised its
+  entire CSS section mid-phase; the AWS Builders Library moved domain) and 2 pages
+  that 403 automated clients** — every one of which would have shipped as a
+  "vetted" link on the strength of my confidence alone.
+
+- **2026-08-13 · Phase 4.5: `resources` is NOT "the table without RLS" — that plan
+  was a security hole, and the corrected shape is RLS-on with a `true` read
+  predicate.** Rules.md 5 and Architecture §5b both promised "the one table
+  *without* RLS (reads public-safe, writes server-only)". Implementing that
+  literally would have been wrong: **on Supabase every table in `public` is granted
+  select/insert/update/delete to the `anon` and `authenticated` roles by default,
+  and RLS is the thing that narrows those grants.** So "no RLS on a public table"
+  does not mean read-only — it means **world-writable with the anon key**. Anyone
+  could have POSTed a row into the vetted corpus, i.e. chosen which links Prep
+  vouches for, which is the precise opposite of what the phase exists to do. **What
+  shipped instead:** `enable row level security` + `for select using (true)` + **no**
+  insert/update/delete policy, so RLS denies every client write; curation happens via
+  migrations and the service role. Plus a redundant `revoke insert, update, delete
+  … from anon, authenticated` in case a later migration copy-pastes a `for all`
+  policy from a sibling table. **The exception to Rule 5 is therefore narrower than
+  advertised: it is the one table with no `user_id` PREDICATE, not the one table with
+  no RLS** — same two-axis shape as `ai_usage` (Phase 4), with the read scope widened
+  from "own rows" to "everyone" because the data is public rather than personal.
+  Pinned by E2E RAG-07…10 and manual SEC-01…05. **Generalisable lesson: "no policy"
+  is not a safe default anywhere the framework grants by default — absence of a rule
+  is only restrictive if the baseline is deny.**
+
+- **2026-08-13 · Phase 4.5: the model is never asked for a URL — it cites documents
+  by INDEX.** The obvious design (and what Architecture §5b originally described) was
+  a schema requiring that "resources must be selected from the provided list", then
+  validating that every returned URL appears in the retrieved set. What shipped is
+  stronger: `GROUNDED_DETAIL_SCHEMA` has no `url`, `title` or `tag` field at all —
+  the model returns `{ ref: <1-based index into the documents we supplied>, why }`,
+  and the validator resolves each `ref` back to **our** row. **Why it matters:** a
+  hallucinated citation is not *rejected*, it is **unrepresentable**. The only thing
+  left to check is that an integer is in range. This is the same move as "the model
+  writes content, not contract" from Phase 4 — *don't validate away a failure you can
+  make impossible to express* — and it is the sharper version of the same idea,
+  because there the model could still return a wrong number and here it cannot return
+  a URL at all. The accepted cost, stated honestly rather than hidden: the model can
+  no longer suggest a genuinely good resource that isn't in the corpus. For a study
+  tool whose users will click the links, a short list of real documents beats a longer
+  list where some fraction is fiction.
+
+- **2026-08-13 · Phase 4.5: retrieval is gated by a similarity FLOOR, not by a
+  `topic_area` filter.** Architecture §5b specced "top-k filtered by `topic_area`",
+  which would have needed a keyword map from a generated topic name to a corpus tag.
+  **Decision: drop the filter, keep the floor.** The floor is what actually does the
+  work: a plain top-k always returns k rows however irrelevant, so without it a topic
+  the corpus knows nothing about would come back with five confident links and the
+  Rule 9 "empty retrieval → generated/unverified" branch would be unreachable in
+  practice. Filtering by area on top would add ~30 lines of keyword classification and
+  a new failure mode (a misclassified topic silently excludes the right documents) to
+  solve a problem the embedding already solves — cross-domain bleed shows up as a low
+  score, which is exactly what the floor rejects. `topic_area` is still stored, for
+  curation and for reading the probe output; it is just not a query predicate.
+
+- **2026-08-13 · Phase 4.5: embedding width is 1536, and the reason is pgvector, not
+  quality.** The open question ("confirm the output dim from a real `embed()`
+  response") was answered by probing the live endpoint: `gemini-embedding-001` returns
+  **3072** dimensions natively at unit length, and honours `outputDimensionality` to
+  truncate (1536 → L2 norm 0.7023; 768 → 0.5947, i.e. **truncated vectors are not
+  normalised**). We use 1536 anyway because **pgvector cannot build an HNSW or IVFFlat
+  index on a `vector` wider than 2000 dimensions** — at 3072 the choice would be a
+  sequential scan forever or `halfvec` at half precision. 1536 is a Matryoshka (MRL)
+  truncation, so the leading dimensions carry most of the signal. The backfill
+  normalises the truncated vectors: under `vector_cosine_ops` this changes nothing
+  (cosine divides magnitudes out, so ranking *and* the floor are scale-invariant), but
+  it removes a trap for the day someone switches the opclass to inner-product or L2.
+  `EMBEDDING_DIM` and the `vector(1536)` column are checked against each other at
+  runtime by the gateway, so a mismatch is caught at the boundary instead of by
+  Postgres rejecting an insert halfway through a backfill.
+
+- **2026-08-13 · Phase 4.5: the corpus backfill bypasses the daily cap deliberately,
+  but still meters.** `scripts/embed-corpus.ts` injects `countToday: () => 0`.
+  **Why that isn't a hole:** Rule 3's cap protects a *user's* share of the provider
+  quota; a corpus backfill is one bounded operator action run by whoever already holds
+  the service-role key, whose size is fixed and visible in a checked-in migration (48
+  embeddings). Letting a 25/day user cap govern it would mean the corpus could only
+  ever be half-embedded — and half a corpus is worse than none, because retrieval
+  would silently return only whatever happened to be embedded first. **Rule 11 is NOT
+  bypassed:** every embedding still writes an `ai_usage` row, attributed to
+  `CORPUS_EMBED_USER_ID` (it has to be a real `auth.users` id — FK), so total provider
+  spend stays honest. The understood consequence: use your own admin account, not a QA
+  account whose `/usage` readout you want clean.
+
 - **2026-08-08 · Phase 4 `ai_usage` is the one user-owned table the user may NOT
   write — RLS is SELECT-only, inserts go through the service role.** Every other
   table in this schema carries the flat `for all using (user_id = auth.uid())`
@@ -419,9 +539,17 @@
   see the bug log.)*
 - Product name (still "Prep", a placeholder).
 - When to revisit the v2 code-sandbox cut.
-- **[Phase 4.5] RAG corpus taxonomy + seed contents** — the `topic_area` tag set and
-  the initial hand-vetted resource list per weak-area. (Whether RAG is in and how is
-  now *settled* above; what goes *in the corpus* is still open.)
+- ~~**[Phase 4.5] RAG corpus taxonomy + seed contents**~~ — **SETTLED 2026-08-13.**
+  Seven `topic_area` tags, mirroring the catalog blocks and the role weak-area lists:
+  `js-async`, `browser-rendering`, `react`, `frontend-system-design`, `performance`,
+  `coding-craft`, `behavioral`. **48 entries** (5–8 per area), weighted to primary
+  sources — MDN, the WHATWG HTML standard, react.dev, RFC 9111, web.dev — in
+  `0008_resources_seed.sql`. Every URL was **fetched and confirmed 200** before being
+  written into the migration, which caught one 404 and one redirect onto a URL already
+  in the list. `topic_area` is a **curation/inspection tag only**; it is not a query
+  predicate (see the floor-vs-filter decision above).
+- ~~**[Phase 4.5] embedding output dim**~~ — **SETTLED 2026-08-13** from a live probe:
+  `vector(1536)`, forced by pgvector's 2000-dim index ceiling. See the decision above.
 
 ## Bugs hit + fixed
 
@@ -485,6 +613,158 @@
   signup + profiles trigger + auth gate all verified against the live origin.
 
 ## Bugs hit + fixed (continued)
+
+- **2026-08-14 · Phase 4.5 (harness): leftover rows from an ABORTED run presented as
+  "the app got six times slower".** Symptom at the close of the phase: a suite that
+  had been running 64/64 in 3.5 minutes took **20.5 minutes and failed 7 tests**
+  across three spec files, every failure a 44s–1.1m timeout, and a *different* set of
+  tests each run. That reads like a performance regression from the RAG work — an
+  extra embedding plus a pgvector round trip on every topic-detail call. **Measured
+  instead of assumed:** `/recall` rendered in 0.5s warm, memory and CPU had headroom
+  (7.3 GB free, load 2.9 on 12 cores), and the app logged no errors. Running the
+  failing specs alone then printed the real cause from the fixture's own message —
+  **`Roadmap generation failed with 403`**. An earlier interrupted run had left three
+  roadmaps behind, putting the test user at the 3-roadmap quota (Rule 18), so every
+  `generateRoadmap()` 403'd and the specs sat waiting for cards and dashboard rows
+  that were never created. Deleting the leftovers restored 64/64 in 4.8 minutes.
+  **Why it was worth more than a cleanup:** `afterEach` cleanup is correct for runs
+  that *finish*, and this project has now been bitten three times by runs that don't
+  (Phase 2, and twice here). So the fix is structural, not another manual delete: the
+  `setup` project now clears each QA user's roadmaps after login, through PostgREST
+  under that user's own session so RLS scopes it to them. Verified by deliberately
+  planting three leftovers and watching the suite self-heal (`[setup] cleared 3
+  leftover roadmap(s) for user A`, then 64/64). **Lesson: per-test cleanup guarantees
+  nothing about the run that crashed before it; a shared-DB suite needs a
+  precondition it establishes, not one it inherits — and quota exhaustion is
+  especially nasty because it surfaces as a timeout somewhere else entirely.**
+
+- **2026-08-14 · Phase 4.5: my own calibration probe raised a false alarm, because
+  its fixture went stale when the corpus grew.** After migration 0011 widened the
+  corpus into backend/DSA/distributed systems, `npm run probe:retrieval` failed with
+  *"FLOOR IS TOO LOW: raise it above 0.744"*. The 0.744 was
+  `"Postgres query planner internals"` matching **PostgreSQL: Using EXPLAIN** — a
+  perfect result. The probe's hard-coded `OFF_DOMAIN` list still contained Postgres
+  and Kafka topics, which were genuinely off-domain against the original
+  frontend-only corpus and had just been deliberately brought *in* scope. **The
+  floor was fine; the test's definition of "outside the corpus" was a year out of
+  date by the standards of a corpus that changes weekly.** Fixed by moving those
+  entries to `IN_DOMAIN` and rewriting `OFF_DOMAIN` as topics from adjacent
+  engineering disciplines the corpus has no business covering (Rust lifetimes,
+  SwiftUI, Kubernetes CRDs, backpropagation, Unity shaders, embedded ISRs) — chosen
+  so a future expansion is unlikely to invalidate them again. **Lesson: a
+  calibration harness encodes an assumption about scope, so it is part of the thing
+  being changed, not a neutral observer of it. When you widen what a system covers,
+  the tests that assert what it does NOT cover are the first things to go stale.**
+
+- **2026-08-13 · Phase 4.5: RAG was 100% broken against the real provider while both
+  test suites were green — because my fixtures didn't look like real model output.**
+  Symptom, reported by the user on the first real run: *every* resource showed the
+  amber UNVERIFIED chip and no links, on a frontend roadmap the corpus covers well.
+  **Diagnosed by reproducing the pipeline stage by stage rather than guessing**
+  (the standing discipline): retrieval was fine — 18 of the user's 20 real topics
+  cleared the 0.62 floor, and the RPC returned the *right* documents ("Event loop and
+  task queues" → the MDN execution-model page, Jake Archibald's talk, the HTML spec).
+  So the failure was downstream. Printing the raw grounded completion showed it
+  immediately:
+
+  ```
+  ref=2  whyLen=223   ref=4  whyLen=212   ref=5  whyLen=206
+  GROUNDED_LIMITS.whyMax = 90     -> validateGroundedDetail returns null
+  ```
+
+  **Root cause: a made-up constant.** I capped the resource caption at 90 characters
+  because that felt like a caption length. Real `gemini-3.5-flash` writes 200–220.
+  So every grounded generation failed validation, was retried (failing identically),
+  and fell through to the ungrounded path — which is *exactly* the Rule 9 behaviour
+  we designed, working perfectly, to hide a total feature failure. No error, no 5xx,
+  no red test: the fallback made the bug invisible.
+
+  **Why neither suite caught it — the part worth remembering.** The mock provider
+  returned `why: "the primary reference"` (21 chars) and my unit fixtures used short
+  strings I had written myself. **Both suites were testing my assumption about the
+  output, not the output.** This is the same class as the Phase 4 single-topic-roadmap
+  bug ("an acceptance test written from the same assumption as the code will happily
+  ratify the bug"), and it is worse here because a *graceful* fallback swallowed the
+  evidence. **A degradation path you cannot distinguish from success is a place bugs
+  go to hide** — that is the general lesson, and it argues for the `source` label
+  being visible in the UI, which is how the user spotted it at all.
+
+  **Fix, in three parts, because raising the number alone would repeat the mistake:**
+  (1) the right **failure semantics** — reject what is load-bearing (a `ref` outside
+  the supplied range means the WRONG LINK), *normalise* what is cosmetic: `whyMax`
+  becomes a generous 400 (a caption that long means the model answered a different
+  question), and `condenseWhy()` trims to 110 chars on a word boundary for display.
+  Throwing away a vetted link because its decoration was 30 characters too long is a
+  terrible trade. (2) The prompt now demands **"AT MOST 12 WORDS"** — models follow
+  explicit word counts far better than "short". (3) **The mock provider now emits
+  ~200-character captions**, so a regression of this class goes red; plus three unit
+  tests pinning the *verbatim* strings from the live response. Verified by re-running
+  the real provider end to end: `ACCEPTED`.
+
+- **2026-08-13 · Phase 4.5: the similarity floor I picked by intuition would have
+  grounded backend topics on React documentation.** The RAG threshold started at
+  `0.55` — a number that *sounds* strict for a cosine similarity, and is the value
+  most tutorials use. Before trusting it I probed the real corpus with real Gemini
+  embeddings (`scripts/probe-retrieval.ts`) using deliberately **off-domain** queries.
+  Result:
+
+  ```
+  in-domain   "Reconciliation & keys"            0.761 … 0.642   (correct docs)
+              "Event loop & microtasks"          0.749 … 0.688
+  OFF-domain  "Postgres query planner internals" 0.568 … 0.562   ← ABOVE 0.55
+              "Kafka consumer group rebalancing" 0.560 … 0.544
+              "Kubernetes pod autoscaling"       0.555 … 0.534
+  ```
+
+  **Gemini's embeddings are not zero-centred:** two texts with nothing whatsoever in
+  common still score ~0.55, so "similarity above a half" carries no information here.
+  At 0.55 a Postgres topic would have retrieved five frontend documents, grounded on
+  them, and rendered every one with a green **VERIFIED** chip — reintroducing exactly
+  the failure the phase exists to remove, wearing the badge that says it was fixed.
+  Nothing would have errored, no test would have gone red, and the corpus links would
+  all have been real; they'd just have had nothing to do with the topic. **Fix:**
+  floor raised to **0.62**, which sits above every off-domain score observed (max
+  0.568) and below every genuinely relevant document (min 0.642) — margin 0.052 — and
+  the probe is now a checked-in script that **exits non-zero if any off-domain query
+  clears the floor**, so the calibration is re-checkable after any model or corpus
+  change rather than being a number in a comment. **Lesson: a threshold on embedding
+  similarity is a property of the model-and-corpus pair, not a universal constant.
+  Calibrate it against queries you KNOW should fail — measuring only the cases you
+  expect to pass tells you nothing about where the line goes.**
+
+- **2026-08-13 · Phase 4.5: a security test had been passing by talking to the wrong
+  server for two phases.** `quota.spec.ts` QT-06 ("an unauthenticated create is
+  blocked") built its URL as `http://localhost:${process.env.PW_PORT ?? "3001"}` —
+  but **3001 is the dev port**; Playwright's own test port has been **3101** since
+  the Phase 4 fix. With `PW_PORT` unset (the normal case), the "anonymous request"
+  test was therefore posting at whatever was listening on 3001 — i.e. it passed by
+  testing *the developer's* dev server, and only surfaced now because I ran the suite
+  with no dev server up, where it failed with `ECONNREFUSED`. **Fix:** take the URL
+  from Playwright's `baseURL` fixture instead of rebuilding it; a request context can
+  be given `baseURL` directly. **Why it's worth logging:** this is the *third* time in
+  this project that a test aimed at the wrong server (the `newContext()` inheriting
+  ambient auth in Phase 1, the suite spending 26 real Gemini calls in Phase 4), and
+  the same root shape every time — the harness reconstructing something it was already
+  given. It also passed for two phases while proving nothing about the server under
+  test, which puts it in the same family as the `test.skip()` hole from Phase 4: green
+  is not evidence that the assertion ran against the right thing. **Lesson: never
+  rebuild a URL, port or session the test runner already owns — derive it.**
+
+- **2026-08-13 · Phase 4.5 (harness, not app): `dotenv/config` reads `.env`, and this
+  project has no `.env`.** The corpus backfill script used the convenient
+  `import "dotenv/config"` and then failed with "CORPUS_EMBED_USER_ID is not set" —
+  for a variable that was sitting in `.env.local` where every other tool in the repo
+  reads it. The bare import only loads `.env`; loading anything else needs an explicit
+  path, which is why `playwright.config.ts` had always spelled it out. Cost was small
+  because the script's own precondition check named the missing variable, which is the
+  reusable part: **the failure was a clear sentence instead of a `TypeError` deep
+  inside the Supabase client**, which is what it would have been had the env check not
+  come first. Second, related runtime bug in the same script: `supabase-js` eagerly
+  constructs a realtime client that needs a global `WebSocket`, which Node 18 lacks
+  and Next's server runtime polyfills — so `lib/supabase/admin.ts` works in the app
+  and throws in a bare script. Fixed **in the script** (polyfill from `undici`) rather
+  than in the shared module: product code shouldn't carry a workaround for a script's
+  runtime. Same Node-18 family as the Next-15 and Playwright-1.47 pins.
 
 - **2026-08-08 · Phase 4: the Recall screen congratulated users on an empty deck —
   a vanity metric introduced by accident.** Symptom: after Phase 4, six Phase 2 E2E
@@ -721,6 +1001,46 @@
   code bug" interview story.
 
 ## Verified subsystems (explain-cold ready)
+
+- **2026-08-14 · Phase 4.5 RAG — grounding topic resources on a curated corpus.**
+  Vitest **210/210** (29 RAG: the grounding validator's every rejection path plus the
+  real-length regression cases, the retrieval-query builder, the corpus-search
+  failure-is-empty contract; 16 embed: cap/width/no-retry/metering; plus 165 from
+  Phases 1–4, no regressions) · Playwright **64/64** (13 RAG: both branches on two
+  test servers that differ only in the similarity floor, and the four corpus-RLS
+  cases) · migrations `0007`–`0011` applied, corpus **202/202 embedded across 26
+  areas**, floor calibration exits 0 at margin 0.024.
+  **On the manual pass, recorded precisely:** the owner reported running the 45-case
+  matrix with no failures, but **no per-case Pass/Fail ledger was kept**, so this
+  phase — unlike Phases 3 and 4 — has no case-level evidence of which awkward-setup
+  rows were exercised versus eyeballed. What I re-verified independently at close:
+  corpus counts and zero duplicate URLs, anon INSERT and DELETE on `resources` both
+  401 with all 202 rows intact, and build/tsc/lint clean.
+  **Five real defects found during the phase, and the pattern matters more than the
+  count: THREE were found by the owner using the real app while both automated suites
+  were green.** (1) A 90-character cap on the resource caption rejected *every*
+  grounded generation — real Gemini writes 200–220 — so the feature was 100% broken
+  behind a Rule 9 fallback that made it invisible; the mock provider's short fixture
+  strings hid it. (2) The validator rejected an empty selection, punishing the model
+  for the selectivity the prompt explicitly demanded. (3) The corpus was curated
+  against the seed catalog rather than against real generated roadmaps, so most of a
+  plan fell back to unverified. (4) `/usage` labelled a 500-row window as all-time.
+  (5) The calibration probe could report PASS having measured nothing.
+  **What is now demoable:** open a topic → press Generate → resources are real,
+  clickable, hand-vetted links carrying a green VERIFIED chip and a source label
+  reading "grounded · vetted sources"; open a topic the corpus has nothing for →
+  the same flow completes with amber UNVERIFIED resources whose titles link to a
+  search rather than to any URL a model produced; `/usage` shows two metered calls
+  per grounded topic, so the price of grounding is a number rather than a claim.
+  **The explain-cold claims this backs:** why the model is never asked for a URL and
+  cites documents by index instead (a hallucinated citation is unrepresentable, not
+  merely rejected); why `resources` is the one table with no `user_id` *predicate*
+  rather than the one table with no RLS (on Supabase, "no RLS" on a public table
+  means world-writable); why the embedding width is 1536 (pgvector cannot index above
+  2000 dims) rather than the model's native 3072; why the similarity floor is
+  measured against queries you know should fail, and why it had to be *raised* as the
+  corpus grew (a broader corpus makes more of the world genuinely adjacent); and why
+  the E2E suite runs two servers differing in exactly one environment variable.
 
 - **2026-08-12 · Phase 4 AI Gateway + real generation — QA gate closed, verified
   end-to-end.** Vitest **165/165** (25 schema validation incl. the "model writes

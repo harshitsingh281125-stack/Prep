@@ -15,7 +15,7 @@
 // lib/ai/config.ts prices the "mock" model at zero. So the /usage readout shows
 // truthful call and token volume while never inventing a dollar of spend.
 
-import type { Provider, ProviderResponse } from "../types";
+import type { Provider, ProviderEmbedding, ProviderResponse } from "../types";
 
 /**
  * Failure injection for QA. Set AI_MOCK_MODE in .env.local:
@@ -71,6 +71,45 @@ function buildTopicDetail(input: string): unknown {
   };
 }
 
+/**
+ * The RAG-grounded topic detail (Phase 4.5). Distinct from buildTopicDetail
+ * because the grounded schema asks for `ref`/`why` pairs rather than titles —
+ * the model is picking from documents it was given, not recalling any.
+ *
+ * It counts the numbered DOCUMENTS lines in the input so it can only ever cite
+ * references that were actually supplied. A mock that returned a fixed `ref: 2`
+ * would fail validation whenever retrieval found exactly one document, and would
+ * look like a bug in the validator rather than in the fixture.
+ */
+function buildGroundedDetail(input: string): unknown {
+  const topic = firstMatch(input, /TOPIC:\s*(.+)/, "the topic");
+  const docCount = (input.match(/^\d+\.\s\[/gm) ?? []).length || 1;
+  const picks = Math.min(docCount, 3);
+
+  // The `why` strings are DELIBERATELY VERBOSE — ~200 characters, matching what
+  // the real model actually writes. They used to be short phrases I made up
+  // ("the primary reference"), and that fixture hid a total failure: the real
+  // provider writes 200-220 chars, the validator capped `why` at 90, so every
+  // grounded generation was rejected and fell through to the ungrounded path
+  // while this mock kept the whole suite green. A fixture that doesn't resemble
+  // production output tests the fixture. Keep these long.
+  const verbose = (n: number) =>
+    `Supporting reference ${n} that provides the definitive step-by-step treatment of this mechanism, ` +
+    `covering the edge cases most explanations skip and the reason the common misconception persists.`;
+
+  return {
+    model: `Mock grounded mental model for ${topic}: lead with the mechanism, then name the misconception it kills, then say what breaks when it is absent.`,
+    resources: Array.from({ length: picks }, (_, i) => ({
+      ref: i + 1,
+      why: verbose(i + 1),
+    })),
+    exercises: [
+      { title: "Explain it cold", desc: `Say what ${topic} is in 90 seconds with no notes.` },
+      { title: "Build the smallest case", desc: `Implement a minimal ${topic} example, then break one assumption.` },
+    ],
+  };
+}
+
 function buildRecall(input: string): unknown {
   const topic = firstMatch(input, /TOPIC:\s*(.+)/, "the topic");
   return {
@@ -80,6 +119,63 @@ function buildRecall(input: string): unknown {
       `Walk through ${topic} end to end from memory, naming the step most people skip.`,
     ],
   };
+}
+
+// --- mock embeddings (Phase 4.5) -------------------------------------------
+
+/** FNV-1a. Any stable string hash would do; this one is short and has no deps. */
+function hash(token: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < token.length; i++) {
+    h ^= token.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * A deterministic LEXICAL embedding: hash each word into a bucket and count it,
+ * then normalise. Similar text lands in similar vectors because it shares words.
+ *
+ * Why not random-but-deterministic vectors (the obvious mock)? Because then
+ * every pair of texts would be near-orthogonal, every similarity would be ~0,
+ * and the retrieval pipeline would be untestable in the only direction that
+ * matters — the mock would always look like an empty corpus.
+ *
+ * What this is NOT: a semantic embedding. It has no idea that "reconciliation"
+ * and "diffing the tree" are related. That is fine and is the point — the E2E
+ * suite pins the pipeline's PLUMBING (a hit grounds, a miss falls back, the
+ * embedding is metered, no URL is invented), while retrieval QUALITY is a
+ * judgement call that only a human reading real results can make, which is what
+ * the manual RAG suite is for.
+ *
+ * `purpose` is deliberately ignored here. A real provider embeds queries and
+ * documents into intentionally different regions; doing that in a lexical mock
+ * would push a query away from the document that literally contains its words,
+ * i.e. it would break the one property this mock exists to have.
+ */
+function mockEmbedding(text: string, dimensions: number): number[] {
+  const vector = new Array<number>(dimensions).fill(0);
+  const tokens = text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
+
+  for (const token of tokens) {
+    const h = hash(token);
+    vector[h % dimensions] += 1;
+    // A second bucket per token, so two different words colliding in one slot
+    // are still distinguishable by the other. Cheap insurance against a corpus
+    // of ~50 documents all looking alike.
+    vector[(h >>> 16) % dimensions] += 0.5;
+  }
+
+  let norm = Math.sqrt(vector.reduce((a, v) => a + v * v, 0));
+  if (norm === 0) {
+    // Text with no usable tokens would otherwise produce the zero vector, whose
+    // cosine distance is undefined — pgvector returns NaN and the ordering goes
+    // incoherent. A fixed unit vector is a defined, consistently-unrelated point.
+    vector[0] = 1;
+    norm = 1;
+  }
+  return vector.map((v) => v / norm);
 }
 
 export function createMockProvider(): Provider {
@@ -98,11 +194,18 @@ export function createMockProvider(): Provider {
       // than a passed-in flag, so the mock can't drift out of sync with what the
       // caller actually asked for.
       const props = jsonSchema?.properties ?? {};
+      // The grounded and ungrounded detail schemas both have `resources`; what
+      // separates them is that the grounded one's items are {ref, why}. Keying
+      // on that rather than on a passed-in flag keeps the mock unable to drift
+      // out of sync with what the caller actually asked for.
+      const grounded = Boolean(props.resources?.items?.properties?.ref);
       const payload = props.weeks
         ? buildRoadmap(input)
         : props.questions
           ? buildRecall(input)
-          : buildTopicDetail(input);
+          : grounded
+            ? buildGroundedDetail(input)
+            : buildTopicDetail(input);
 
       const malformed =
         m === "malformed" || (m === "malformed-once" && dispatches === 1);
@@ -122,6 +225,31 @@ export function createMockProvider(): Provider {
           outputTokens: estimateTokens(text),
           // Never fabricated. The mock has no cache, so the honest number is 0 —
           // which is why cache hit-rate is only meaningful against a live provider.
+          cachedInputTokens: 0,
+        },
+      };
+    },
+
+    async embed({ input, purpose, dimensions }): Promise<ProviderEmbedding> {
+      dispatches += 1;
+
+      // AI_MOCK_MODE=error covers the embedding path too, so the manual matrix
+      // can prove that a dead embedding provider degrades to generated resources
+      // rather than failing the topic (Rule 9) — not just that a dead completion
+      // provider does.
+      if (mode() === "error") throw new Error("mock provider: simulated embedding outage");
+
+      // AI_MOCK_MODE=malformed returns a vector of the WRONG WIDTH. That is the
+      // realistic malformed embedding — not junk floats, which are
+      // indistinguishable from good ones, but a width the pgvector column cannot
+      // accept. It exercises the gateway's width check.
+      const width = mode() === "malformed" ? dimensions - 1 : dimensions;
+
+      return {
+        vector: mockEmbedding(input, width),
+        usage: {
+          inputTokens: estimateTokens(input),
+          outputTokens: 0, // an embedding generates no text
           cachedInputTokens: 0,
         },
       };

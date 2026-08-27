@@ -17,6 +17,19 @@ loadEnv({ path: ".env.local" });
 const PORT = process.env.PW_PORT ?? "3101";
 const BASE_URL = `http://localhost:${PORT}`;
 
+// A SECOND test server, on the next port up, that differs from the first in
+// exactly one environment variable: the RAG similarity floor (Phase 4.5).
+//
+// Why a whole second server rather than a flag: Next.js reads env only at
+// startup, so one process cannot serve both "the corpus has something for this
+// topic" and "the corpus has nothing" — and the fallback branch is the half of
+// the RAG pipeline that Rule 9 is actually about. The alternative was to expose
+// the floor as a per-request parameter, which would have put a knob in the
+// product API purely so a test could turn it, i.e. it would have made the
+// product worse to make the test easier.
+const NO_CORPUS_PORT = String(Number(PORT) + 1);
+const NO_CORPUS_URL = `http://localhost:${NO_CORPUS_PORT}`;
+
 // Playwright config. Pinned to @playwright/test 1.47.2 for Node 18 (newer requires
 // Node 20 — same constraint as the Next 15 pin; see memory.md). Runs the P0
 // security/RLS/mastery E2E cases from tests/phase-1-roadmaps.md against a real
@@ -27,6 +40,22 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
+
+  // 60s, not Playwright's 30s default — and this is a measurement, not a guess.
+  //
+  // The suite runs against `next dev`, which compiles each route on its FIRST
+  // request. Measured on this machine: an authenticated `/recall` render takes
+  // ~7.6s cold and ~0.5s warm. That was comfortably inside 30s until Phase 4.5
+  // added a SECOND dev server (see webServer below) — now two Next instances
+  // compile the same routes in parallel, and a cold `page.goto("/recall")` can
+  // exceed 30s under that contention. Six recall/ai specs failed exactly that
+  // way, all with the same `page.goto: Test timeout` signature, while curl
+  // against the same app returned 200 in half a second.
+  //
+  // Raising the budget is the honest fix because the app is not slow — the
+  // FIRST COMPILE is, and only in dev. Verified outside the harness before
+  // changing anything, per the standing rule in tests/README.md.
+  timeout: 60_000,
   reporter: [["list"], ["html", { open: "never" }]],
 
   use: {
@@ -43,9 +72,23 @@ export default defineConfig({
     //    User B (RLS cross-user) load B's state explicitly.
     {
       name: "chromium",
+      testIgnore: /rag-fallback\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: "tests/e2e/.auth/userA.json",
+      },
+      dependencies: ["setup"],
+    },
+
+    // 3) The RAG fallback project — same suite mechanics, pointed at the server
+    //    whose similarity floor nothing can clear. Only one spec runs here.
+    {
+      name: "chromium-no-corpus",
+      testMatch: /rag-fallback\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "tests/e2e/.auth/userA.json",
+        baseURL: NO_CORPUS_URL,
       },
       dependencies: ["setup"],
     },
@@ -58,7 +101,8 @@ export default defineConfig({
   // file specifies. It previously cost real API spend (see the PORT note above) and
   // separately wasted a debugging cycle when a stale server ignored two config
   // changes in a row because Next only reads env at startup.
-  webServer: {
+  webServer: [
+    {
     command: `npx next dev -p ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: false,
@@ -92,6 +136,32 @@ export default defineConfig({
       // behaviour is checked manually (suite CAP), so nothing is lost by giving
       // the test server headroom.
       AI_DAILY_CALL_CAP: "500",
+      // Phase 4.5: force every retrieval to HIT.
+      //
+      // The corpus holds real Gemini vectors (written by the backfill), while
+      // the mock provider embeds queries lexically — two different vector
+      // spaces, so every similarity between them is meaningless noise near
+      // zero. A floor of -1 admits everything, which makes the grounded branch
+      // reachable without a live provider. What is deliberately NOT claimed by
+      // any test on this server: that the RANKING is any good. Ranking quality
+      // is a human judgement against real embeddings, and it is manual suite RAG.
+      RAG_MIN_SIMILARITY: "-1",
     },
-  },
+    },
+
+    // The fallback server: a floor no cosine similarity can ever reach (the
+    // maximum is 1), so retrieval returns nothing on every topic. That is the
+    // "niche topic, thin corpus" case from the phase spec, made deterministic.
+    {
+      command: `npx next dev -p ${NO_CORPUS_PORT}`,
+      url: NO_CORPUS_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        AI_PROVIDER: "mock",
+        AI_DAILY_CALL_CAP: "500",
+        RAG_MIN_SIMILARITY: "2",
+      },
+    },
+  ],
 });

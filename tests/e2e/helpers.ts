@@ -30,6 +30,53 @@ export async function assertMockProvider(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Refuse to run grounding tests against an unembedded corpus (Phase 4.5).
+ *
+ * match_resources() skips rows whose `embedding` is NULL, so a corpus that has
+ * been seeded (0008) but never backfilled (`npm run embed:corpus`) retrieves
+ * NOTHING — and the route then correctly falls back to ungrounded generation.
+ * Every grounding assertion would fail with "expected rag, got ai", which reads
+ * like a broken pipeline rather than a setup step nobody ran.
+ *
+ * This is the same lesson as `generateCardsForFirstTopic` throwing instead of
+ * returning 0: a fixture's precondition failure must name itself, or it gets
+ * misdiagnosed as a failure of the thing under test (memory.md, twice).
+ *
+ * It reads the corpus through PostgREST with the ANON key on purpose — which
+ * also demonstrates the `for select using (true)` policy from the outside.
+ */
+export async function assertCorpusEmbedded(page: Page): Promise<void> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL / ANON_KEY missing — cannot verify the RAG corpus.");
+  }
+
+  const res = await page.request.get(
+    `${url}/rest/v1/resources?select=id&embedding=not.is.null&limit=1`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+  );
+
+  if (!res.ok()) {
+    throw new Error(
+      `Could not read the resources corpus (${res.status()}). Has migration ` +
+        `0007_resources.sql been applied? Grounding tests cannot run without it.`
+    );
+  }
+
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(
+      "REFUSING TO RUN: the resources corpus has no embedded rows.\n" +
+        "Apply 0007_resources.sql and 0008_resources_seed.sql, then run " +
+        "`npm run embed:corpus`. Without vectors, retrieval returns nothing and " +
+        "every topic silently falls back to ungrounded generation — which would " +
+        "make these tests fail as if the grounding code were broken."
+    );
+  }
+}
+
 export const VALID_ANSWERS = {
   role: "SDE-2 · Frontend",
   bar: "Big tech (FAANG-tier)",

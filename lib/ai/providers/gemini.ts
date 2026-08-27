@@ -11,7 +11,13 @@
 // request is one POST with a JSON body; that is not worth a dependency.
 
 import { REQUEST_TIMEOUT_MS } from "../config";
-import type { JsonSchema, Provider, ProviderResponse } from "../types";
+import type {
+  EmbedPurpose,
+  JsonSchema,
+  Provider,
+  ProviderEmbedding,
+  ProviderResponse,
+} from "../types";
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -38,6 +44,21 @@ function toGeminiSchema(schema: JsonSchema): Record<string, unknown> {
   if (schema.required) out.required = schema.required;
   return out;
 }
+
+/**
+ * Gemini's task-type vocabulary for retrieval embeddings. The neutral
+ * `EmbedPurpose` is translated here, at the vendor boundary, for the same reason
+ * toGeminiSchema() exists — nothing above this file should know these strings.
+ */
+const TASK_TYPE: Record<EmbedPurpose, string> = {
+  query: "RETRIEVAL_QUERY",
+  document: "RETRIEVAL_DOCUMENT",
+};
+
+type GeminiEmbedResponse = {
+  embedding?: { values?: number[] };
+  error?: { code?: number; message?: string; status?: string };
+};
 
 type GeminiResponse = {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
@@ -110,6 +131,52 @@ export function createGeminiProvider(apiKey: string): Provider {
             // Gemini reports cached tokens as a subset of promptTokenCount, which
             // is the convention lib/ai/cost.ts assumes. Absent field = no hit.
             cachedInputTokens: u.cachedContentTokenCount ?? 0,
+          },
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    async embed({ model, input, purpose, dimensions }): Promise<ProviderEmbedding> {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(`${ENDPOINT}/${model}:embedContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: `models/${model}`,
+            content: { parts: [{ text: input }] },
+            taskType: TASK_TYPE[purpose],
+            // Matryoshka truncation to the width the pgvector column can index.
+            // Verified against the live endpoint: the response really does come
+            // back at the requested width (see EMBEDDING_DIM in ../config.ts).
+            outputDimensionality: dimensions,
+          }),
+        });
+
+        const body = (await res.json().catch(() => null)) as GeminiEmbedResponse | null;
+
+        if (!res.ok) {
+          const msg = body?.error?.message ?? `HTTP ${res.status}`;
+          throw new Error(`gemini embed ${res.status}: ${msg}`);
+        }
+
+        return {
+          vector: body?.embedding?.values ?? [],
+          // The embeddings endpoint does not report token counts at all — there
+          // is no usageMetadata on the response. Reporting an estimate would put
+          // an invented number in a column the cost readout sums, so input
+          // tokens are estimated the same way the mock adapter does it and the
+          // estimate is labelled as one wherever it surfaces. Output tokens are
+          // genuinely zero: an embedding produces no generated text.
+          usage: {
+            inputTokens: Math.ceil(input.length / 4),
+            outputTokens: 0,
+            cachedInputTokens: 0,
           },
         };
       } finally {

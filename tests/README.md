@@ -5,18 +5,20 @@ E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
 |-------|--------------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering | `tests/unit/*.test.ts` |
-| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS (needs real session + DB) | `tests/e2e/*.spec.ts` |
-| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, **and the real AI provider** | `tests/phase-<n>-*.md` |
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering; **RAG grounding validator + retrieval query + `embed()`** | `tests/unit/*.test.ts` |
+| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS + **both RAG branches and corpus RLS** (needs real session + DB) | `tests/e2e/*.spec.ts` |
+| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, **the real AI provider, and whether retrieval retrieves the RIGHT documents** | `tests/phase-<n>-*.md` |
 
 Manual matrices, one per phase:
 [phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md) ·
-[phase-3-progress.md](./phase-3-progress.md) · [phase-4-ai-gateway.md](./phase-4-ai-gateway.md).
+[phase-3-progress.md](./phase-3-progress.md) · [phase-4-ai-gateway.md](./phase-4-ai-gateway.md) ·
+[phase-4.5-rag.md](./phase-4.5-rag.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **165** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
-+ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway) · Playwright **51**
-(10 Phase 1 + 8 recall + 13 sessions + 20 AI), all green as of 2026-08-12.
+**Current counts:** Vitest **210** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
++ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag) ·
+Playwright **64** (10 Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG), all green as
+of 2026-08-14.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 
@@ -47,6 +49,41 @@ run** against a real provider. Override the port with `PW_PORT=<n>` if 3101 is t
 `AI_MOCK_MODE=ok|malformed|malformed-once|error` injects failures, which is the only
 practical way to reach the retry and seeded-fallback paths on demand.
 
+### TWO servers now run, and the second one is the point (Phase 4.5)
+
+`webServer` is an array: **3101** (default) and **3102**. They differ in exactly one
+variable, `RAG_MIN_SIMILARITY`:
+
+| Port | Project | Floor | What it makes reachable |
+|------|---------|-------|-------------------------|
+| 3101 | `chromium` | `-1` | every retrieval **hits** → the grounded branch |
+| 3102 | `chromium-no-corpus` | `2` | nothing can clear it → the **empty-retrieval fallback** |
+
+Why a whole second server rather than a flag: Next reads env only at startup, so one
+process cannot serve both branches — and the fallback is the half of RAG that Rule 9
+is actually about. The alternative was exposing the floor as a per-request parameter,
+i.e. putting a knob in the product API purely so a test could turn it.
+
+**Why the floor is overridden at all.** The corpus holds real Gemini vectors (written
+by `npm run embed:corpus`), while the mock provider embeds **lexically** — two
+different vector spaces, so every similarity between them is meaningless noise near
+zero. Forcing the floor is what makes the pipeline testable without a live provider.
+**What no automated test therefore claims: that the ranking is any good.** That is
+`npm run probe:retrieval` plus manual suite RANK, and skipping them means retrieval
+quality has been checked by nobody.
+
+`PW_PORT=3105` shifts both (the second is always `PW_PORT + 1`).
+
+### The RAG suites need the corpus to exist
+
+`rag.spec.ts` calls `assertCorpusEmbedded()` in `beforeAll` and **refuses to run**
+if `resources` has no embedded rows — because migrations `0007`/`0008` applied
+without `npm run embed:corpus` produce a corpus that retrieves *nothing*, every
+topic correctly falls back to ungrounded, and every grounding assertion fails with
+"expected rag, got ai". That reads like a broken pipeline and is actually a setup
+step nobody ran. Same reasoning as `generateCardsForFirstTopic` throwing rather than
+returning 0.
+
 ### Harness gotchas that have bitten this suite (read before writing a spec)
 
 All produced failures that *looked* like app bugs and weren't — see memory.md.
@@ -70,6 +107,34 @@ All produced failures that *looked* like app bugs and weren't — see memory.md.
    session lives in **cookies** (chunked `sb-<ref>-auth-token.0/.1`, base64-encoded).
    The summary said "41 passed, 4 skipped" and looked fine. Prefer asserting the
    precondition over skipping on it.
+6. **Never rebuild a URL, port or session the runner already owns — derive it.**
+   `quota.spec.ts` QT-06 built `http://localhost:${process.env.PW_PORT ?? "3001"}`,
+   but 3001 is the **dev** port and the test port has been 3101 since Phase 4. With
+   `PW_PORT` unset it had been posting at whatever was listening on 3001 — so this
+   security case passed for two phases by testing *the developer's* dev server, and
+   only surfaced when the suite ran with no dev server up (`ECONNREFUSED`). Use the
+   `baseURL` fixture; `request.newContext({ baseURL })` accepts it. Third instance of
+   this exact shape in the project (see gotchas 1 and 4).
+7. **Read the response shape before asserting on it.** Two Phase 4.5 specs asserted
+   `body.summary.calls` from `/api/usage`, which returns `today` and `recent`. Cost
+   a red run that had nothing to do with the feature.
+8. **Never assert that a WINDOWED aggregate grows.** AI-16 asserted
+   `allTime.calls` strictly increased after a generation. `/api/usage` aggregates at
+   most `USAGE_WINDOW` (500) rows, so the moment qa-a crossed 500 lifetime
+   dispatches the count pinned at 500 and the assertion became structurally
+   unpassable — a test that could only ever go red from then on, for a reason
+   unrelated to the code under test. It now asserts `usedToday`, which comes from an
+   exact `COUNT`. (The field was also renamed `allTime` → `recent`, because the
+   readout was labelling a capped window as a lifetime total.)
+
+8. **Leftover rows from an ABORTED run look like a performance problem.** `afterEach`
+   cleanup only runs for tests that finish. An interrupted run leaves roadmaps behind,
+   the next run starts at the 3-roadmap quota, `generateRoadmap()` returns **403**, and
+   the specs then time out waiting for cards and dashboard rows that were never
+   created — which presented once as "the suite got 6x slower" (20.5 min, 7 red across
+   three files, a different set each run). The `setup` project now clears each QA
+   user's roadmaps after login, so an aborted run self-heals. If you see widespread
+   timeouts, check for a `403` in the fixture message before profiling anything.
 
 Corollary: **when a test claims the app is broken, reproduce it outside the harness
 (curl / a probe / `node -e`) before changing app code.** Four of this project's red
@@ -120,13 +185,15 @@ cp .env.test.example .env.test
 Edit `.env.test` and fill in the four values (`QA_A_EMAIL`, `QA_A_PASSWORD`,
 `QA_B_EMAIL`, `QA_B_PASSWORD`). **`.env.test` is gitignored — never commit it.**
 
-### 3. Make sure the migrations are applied + dev server can run
-- All migrations through **`0006_ai_usage.sql`** must be applied (the tables must
-  exist): `0003_roadmaps.sql`, `0004_recall.sql`, `0005_study_sessions.sql`,
-  `0006_ai_usage.sql`.
-- No AI provider key is needed to run E2E — the suite uses the mock provider.
-- Playwright will auto-start `npm run dev` on port 3001 if one isn't already running
-  (it reuses an existing server if you have one up).
+### 3. Make sure the migrations are applied + the corpus is embedded
+- All migrations through **`0008_resources_seed.sql`** must be applied (the tables
+  must exist): `0003_roadmaps.sql`, `0004_recall.sql`, `0005_study_sessions.sql`,
+  `0006_ai_usage.sql`, `0007_resources.sql`, `0008_resources_seed.sql`.
+- **Run `npm run embed:corpus` once** (needs `CORPUS_EMBED_USER_ID` and a real
+  `GEMINI_API_KEY` in `.env.local`). This is the only setup step that needs a live
+  provider — the suite itself does not. Without it the RAG specs refuse to run.
+- No AI provider key is needed to *run* E2E — the suite uses the mock provider.
+- Playwright starts its **own two servers** (3101 + 3102) and never reuses one.
 
 ---
 
@@ -171,6 +238,17 @@ npm test                   # unit, then E2E
   a dispatch writes a usage row), AI-17/18/19/20 (**the security core**: the owner
   can read their `ai_usage` rows but can neither DELETE nor INSERT them, and B can't
   see A's spend — this is what stops the daily cap being self-resettable).
+- **`rag.spec.ts`** (Phase 4.5, port 3101) — RAG-01…06 (a topic with corpus hits is
+  grounded; **every returned URL exists in the corpus**; linked ⟺ verified, never
+  both flags or neither; the UI shows VERIFIED chips + `rel=noopener` links; the
+  retrieval embedding is metered as a second call; grounded detail survives a
+  reload), RAG-07…10 (**the security core**: the corpus is publicly readable but
+  no client can INSERT, DELETE or PATCH it — this is what stops an attacker choosing
+  which links Prep vouches for).
+- **`rag-fallback.spec.ts`** (Phase 4.5, port 3102) — RAG-11/12/13 (with retrieval
+  guaranteed empty: the topic still gets full study material, its resources are
+  flagged `unverified` and carry no link, and a missed retrieval spends exactly two
+  calls rather than attempting a grounded completion against nothing).
 - **`sessions.spec.ts`** (Phase 3) — SE-01/02/03/04/05 (anon blocked; `minutes`
   boundary validation incl. 0/-30/1441/45.5/NaN/`"60"`/null and the accepted 1 & 1440;
   missing roadmapId 400; unknown roadmap 404), SE-06/07/08 (log → dashboard stats move;

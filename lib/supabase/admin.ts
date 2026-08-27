@@ -17,13 +17,25 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 // rather than a code-review habit.
 
 /**
- * The service-role client is typed against ONE table on purpose.
+ * The service-role client is typed against an EXPLICIT LIST of tables, not `any`.
  *
- * It could have been left untyped (`any`) and allowed to touch anything. Naming
- * only `ai_usage` turns "the service role is for metering and nothing else" from
- * a convention into a compile error: reaching for `admin.from("roadmaps")` to
- * skip an RLS check you found inconvenient won't typecheck. Everything else in
- * this app goes through the anon-key client, under RLS, as it should.
+ * That turns "the service role is for the tables no client may write" from a
+ * convention into a compile error: reaching for `admin.from("roadmaps")` to skip
+ * an RLS check you found inconvenient won't typecheck. Everything else in this
+ * app goes through the anon-key client, under RLS, as it should.
+ *
+ * Phase 4.5 grew the list from one table to two, and the criterion is worth
+ * stating because it is what keeps the list from growing further by habit:
+ * a table belongs here **only if its RLS policy denies writes to every client**.
+ *   - `ai_usage`  (Phase 4)   — SELECT-only for the owner; the daily cap is a
+ *                               COUNT of these rows, so a writable table would
+ *                               make the cap self-resettable.
+ *   - `resources` (Phase 4.5) — SELECT-only for everyone; it is the vetted RAG
+ *                               corpus, and a writable table would let anyone
+ *                               inject a URL into the one list the product
+ *                               promises is trustworthy.
+ * In both cases the service role is not a convenience — it is the only writer
+ * the schema permits.
  */
 type AiUsageInsert = {
   user_id: string;
@@ -41,13 +53,37 @@ type AiUsageInsert = {
 
 type AiUsageRow = AiUsageInsert & { id: string; created_at: string };
 
-type MeteringDatabase = {
+/**
+ * The RAG corpus (Phase 4.5). Only `embedding` is ever updated through this
+ * client — the rows themselves are curated in a checked-in SQL migration
+ * (0008_resources_seed.sql), so that the list of URLs the product vouches for is
+ * reviewable in a diff rather than mutable at runtime. The backfill script fills
+ * in the vectors afterwards; see scripts/embed-corpus.ts.
+ */
+type ResourceRow = {
+  id: string;
+  topic_area: string;
+  title: string;
+  url: string;
+  kind: string;
+  summary: string;
+  embedding: string | null;
+  created_at: string;
+};
+
+type ServerWriteDatabase = {
   public: {
     Tables: {
       ai_usage: {
         Row: AiUsageRow;
         Insert: AiUsageInsert;
         Update: Partial<AiUsageInsert>;
+        Relationships: [];
+      };
+      resources: {
+        Row: ResourceRow;
+        Insert: Omit<ResourceRow, "id" | "created_at">;
+        Update: Partial<Pick<ResourceRow, "embedding">>;
         Relationships: [];
       };
     };
@@ -58,7 +94,7 @@ type MeteringDatabase = {
   };
 };
 
-let cached: ReturnType<typeof createSupabaseClient<MeteringDatabase>> | null = null;
+let cached: ReturnType<typeof createSupabaseClient<ServerWriteDatabase>> | null = null;
 
 export function createAdminClient() {
   if (cached) return cached;
@@ -71,7 +107,7 @@ export function createAdminClient() {
     );
   }
 
-  cached = createSupabaseClient<MeteringDatabase>(url, key, {
+  cached = createSupabaseClient<ServerWriteDatabase>(url, key, {
     // No session, no cookie handling, no token refresh: this client is never
     // acting as a user. Persisting anything here would be a way for one
     // request's identity to leak into another's.

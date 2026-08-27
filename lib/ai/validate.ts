@@ -288,6 +288,238 @@ export function validateTopicDetail(raw: unknown): TopicDetail | null {
   return { model, resources, exercises, source: "ai" };
 }
 
+// --- topic detail, RAG-grounded (Phase 4.5) --------------------------------
+
+/**
+ * The grounded schema. Compare it to TOPIC_DETAIL_SCHEMA above: the resource
+ * objects have lost `title`, `meta` and `tag`, and gained `ref` — a 1-based
+ * index into the documents the retrieval step supplied.
+ *
+ * THAT SUBSTITUTION IS THE WHOLE PHASE. Phase 4's resources were whatever the
+ * model remembered, so their titles could name documents that never existed and
+ * (had we asked for links) their URLs could point nowhere. Here the model is
+ * never asked for a title, a source or a URL — only for which of OUR documents
+ * to rank and why. A hallucinated citation is not rejected by validation; it is
+ * not expressible. The only thing left to check is that the number is in range.
+ *
+ * The corresponding cost, stated honestly: the model can no longer suggest a
+ * genuinely better resource that isn't in the corpus. That is a real loss and it
+ * is the trade being made — a smaller set of references that are all real beats
+ * a longer list where some fraction are fiction, for a study tool whose users
+ * will click the links.
+ */
+export const GROUNDED_DETAIL_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    model: {
+      type: "string",
+      description:
+        "The one-paragraph mental model for this topic — the thing you'd say first in an interview.",
+    },
+    resources: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          ref: {
+            type: "integer",
+            description:
+              "The number of a document from the supplied DOCUMENTS list, 1-based. Never a number that was not supplied.",
+          },
+          why: {
+            type: "string",
+            description:
+              "Short reason this document earns its place for this topic — what it gives that the others don't.",
+          },
+        },
+        required: ["ref", "why"],
+      },
+    },
+    exercises: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          desc: { type: "string" },
+        },
+        required: ["title", "desc"],
+      },
+    },
+  },
+  required: ["model", "resources", "exercises"],
+};
+
+export const GROUNDED_LIMITS = {
+  /**
+   * ZERO is a legitimate answer, and making it one fixed a real bug.
+   *
+   * This was 1 ("at least one selected document, else there was no point
+   * grounding"). But the prompt tells the model to *be selective* — "if only two
+   * of the documents are worth reading, return two; never pad the list". So when
+   * retrieval surfaced one marginal document for "Monorepo vs Polyrepo
+   * strategies", the model correctly judged it irrelevant and returned an empty
+   * selection — and the validator threw the entire generation away, spent a
+   * retry getting the same honest answer, and metered both as `invalid`.
+   *
+   * Instructing a model to exercise judgement and then treating its judgement as
+   * malformed output is a contradiction in the design, not a model failure. An
+   * empty selection means "none of the retrieved documents earn a place here",
+   * which is the same *situation* as empty retrieval — so it is parsed
+   * successfully and the ROUTE routes it to the ungrounded path, instead of
+   * being punished as a schema violation.
+   */
+  resourcesMin: 0,
+  /**
+   * Hard reject above this. Deliberately generous: a `why` this long means the
+   * model misunderstood the field (it wrote a summary, not a caption), which is
+   * worth failing on. Anything shorter is a formatting problem, not a
+   * correctness one — see `condenseWhy`.
+   */
+  whyMax: 400,
+  /** Display budget for the caption inside the resource row's meta line. */
+  whyDisplayMax: 110,
+} as const;
+
+/** corpus `kind` → the resource chip the Topic screen already renders. */
+const KIND_TO_TAG: Record<string, SeedResource["tag"]> = {
+  doc: "Docs",
+  deep: "Deep",
+  article: "Article",
+  talk: "Talk",
+  spec: "Spec",
+};
+
+/**
+ * Trim the model's caption to something that fits the resource row.
+ *
+ * THIS FUNCTION EXISTS BECAUSE OF A REAL BUG, and the reasoning is the reusable
+ * part. `whyMax` was originally 90 characters — a number I picked from how long I
+ * thought a caption should be. Real Gemini output writes 200–220 characters here
+ * (measured: 223, 212, 206 on the first live topic). So every grounded
+ * generation failed validation, was retried, failed again, and fell through to
+ * the ungrounded path: the feature was 100% broken against the real provider
+ * while both test suites were green, because the mock provider and my unit
+ * fixtures used short strings I had written myself.
+ *
+ * The fix is not just a bigger number, it is the right FAILURE SEMANTICS. The
+ * value of a grounded resource is the vetted link; the caption is decoration.
+ * Throwing away a real link because its annotation is thirty characters too long
+ * is a terrible trade. So: reject what is load-bearing (a `ref` outside the
+ * supplied range means the WRONG LINK), normalise what is cosmetic. The prompt
+ * asks for at most 12 words, this enforces it for display, and `whyMax` still
+ * rejects the case where the model clearly answered a different question.
+ *
+ * Cuts on a word boundary — a caption ending mid-word reads as a rendering bug.
+ */
+function condenseWhy(why: string): string {
+  if (why.length <= GROUNDED_LIMITS.whyDisplayMax) return why;
+  const cut = why.slice(0, GROUNDED_LIMITS.whyDisplayMax);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 40 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, "") + "…";
+}
+
+/** The hostname, as the resource's source label. Never model-supplied. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/** The subset of a retrieved corpus row this validator needs. */
+export type GroundingDoc = {
+  title: string;
+  url: string;
+  kind: string;
+};
+
+/**
+ * Validate a grounded generation and fuse it with the retrieved documents.
+ *
+ * Every field a user could act on — the title, the link, the tag — is copied
+ * from `docs`, i.e. from a row a human curated and whose URL was checked. The
+ * model contributes the mental model, the ordering, the `why` line and the
+ * exercises. Returns null on anything malformed, and the gateway then retries
+ * once before the route falls back (Rule 9).
+ */
+export function validateGroundedDetail(
+  raw: unknown,
+  docs: GroundingDoc[]
+): TopicDetail | null {
+  const root = obj(raw);
+  if (!root || docs.length === 0) return null;
+
+  const model = str(root.model, TOPIC_DETAIL_LIMITS.modelMin, TOPIC_DETAIL_LIMITS.modelMax);
+  if (!model) return null;
+
+  // Never more references than documents supplied — a model returning eight
+  // picks from five documents is repeating itself or inventing.
+  const rawResources = arr(root.resources, GROUNDED_LIMITS.resourcesMin, docs.length);
+  if (!rawResources) return null;
+
+  const resources: SeedResource[] = [];
+  const seen = new Set<number>();
+
+  for (const r of rawResources) {
+    const o = obj(r);
+    if (!o) return null;
+
+    // The reference must be an integer inside the supplied range. Not clamped,
+    // not coerced: a model that cites document 9 out of 5 has misunderstood the
+    // task, and quietly reading that as document 5 would hand the user a link
+    // for a reason the model never actually gave.
+    const ref = typeof o.ref === "number" && Number.isInteger(o.ref) ? o.ref : null;
+    if (ref === null || ref < 1 || ref > docs.length) return null;
+    // The same document twice would occupy two slots in a ranked list of five
+    // with one document — the duplication the corpus's `url unique` constraint
+    // prevents at curation time, prevented again at selection time.
+    if (seen.has(ref)) return null;
+    seen.add(ref);
+
+    const why = str(o.why, 1, GROUNDED_LIMITS.whyMax);
+    if (!why) return null;
+
+    const doc = docs[ref - 1];
+    const tag = KIND_TO_TAG[doc.kind];
+    // An unmappable kind means the corpus and this map have drifted apart. That
+    // is our bug, not the model's, and guessing a tag would hide it.
+    if (!tag) return null;
+
+    const caption = condenseWhy(why);
+    const host = hostOf(doc.url);
+    resources.push({
+      title: doc.title,
+      meta: host ? `${host} · ${caption}` : caption,
+      tag,
+      url: doc.url,
+      // No `unverified` flag: this URL came out of the curated corpus. The flag's
+      // absence is load-bearing, so it is left absent rather than set to false —
+      // `unverified: false` and "no flag" would be two encodings of one fact.
+    });
+  }
+
+  const rawExercises = arr(
+    root.exercises,
+    TOPIC_DETAIL_LIMITS.exercisesMin,
+    TOPIC_DETAIL_LIMITS.exercisesMax
+  );
+  if (!rawExercises) return null;
+
+  const exercises = [];
+  for (const e of rawExercises) {
+    const o = obj(e);
+    if (!o) return null;
+    const title = str(o.title, 1, TOPIC_DETAIL_LIMITS.titleMax);
+    const desc = str(o.desc, 1, TOPIC_DETAIL_LIMITS.descMax);
+    if (!title || !desc) return null;
+    exercises.push({ title, desc });
+  }
+
+  return { model, resources, exercises, source: "rag" };
+}
+
 // --- recall cards ----------------------------------------------------------
 
 export const RECALL_SCHEMA: JsonSchema = {

@@ -25,6 +25,7 @@ import "server-only";
 
 import {
   DAILY_CALL_CAP,
+  EMBEDDING_DIM,
   MAX_ATTEMPTS,
   MODELS,
   billingMode,
@@ -34,7 +35,16 @@ import { costUsd } from "./cost";
 import { RETRY_NUDGE } from "./prompts";
 import { createGeminiProvider } from "./providers/gemini";
 import { createMockProvider } from "./providers/mock";
-import { EMPTY_USAGE, type CompleteResult, type JsonSchema, type Provider, type Tier, type Usage } from "./types";
+import {
+  EMPTY_USAGE,
+  type CompleteResult,
+  type EmbedPurpose,
+  type EmbedResult,
+  type JsonSchema,
+  type Provider,
+  type Tier,
+  type Usage,
+} from "./types";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /** One metered dispatch, as written to ai_usage. */
@@ -239,6 +249,103 @@ export async function complete<T>(
   // content — the user gets a working roadmap and never learns the model failed,
   // except through the honest source label the UI shows.
   return { ok: false, reason: "invalid", attempts: attempt };
+}
+
+// --- embeddings (Phase 4.5, RAG) -------------------------------------------
+
+export type EmbedOptions = {
+  /** The API route spending the call. Groups embedding spend in the readout. */
+  route: string;
+  userId: string;
+  input: string;
+  /** Retrieval embeddings are asymmetric — say which side this is. */
+  purpose: EmbedPurpose;
+};
+
+/**
+ * Turn text into a vector, through the same door as everything else.
+ *
+ * It lives in this module rather than next to the retrieval code for one
+ * reason: Rules 3 and 11 do not say "completions are capped and metered", they
+ * say AI calls are. An embedding is a billed provider request. Putting it
+ * anywhere else would have created a second, unmetered way to spend the user's
+ * quota — and the daily cap would have quietly stopped being a cap.
+ *
+ * Three deliberate differences from complete():
+ *
+ *   1. NO RETRY. complete() retries once because a model can produce malformed
+ *      JSON and then produce valid JSON on the same prompt — the failure is
+ *      non-deterministic. An embedding has no schema to get wrong; the only
+ *      failure that isn't a network error is a WIDTH mismatch, which is a config
+ *      error that will reproduce exactly on attempt two. Retrying it would spend
+ *      a second call from the user's cap to fail identically.
+ *   2. NO VALIDATE CALLBACK. The only correctness property is the width, and the
+ *      gateway knows it (EMBEDDING_DIM), so the caller isn't asked for one.
+ *   3. It still writes an ai_usage row with tier 'embedding' — which is what
+ *      makes the RAG pipeline's true cost visible on /usage as two calls per
+ *      topic, not one.
+ */
+export async function embed(
+  opts: EmbedOptions,
+  deps: Partial<GatewayDeps> = {}
+): Promise<EmbedResult> {
+  const provider = deps.provider !== undefined ? deps.provider : resolveProvider();
+  const model = deps.model ?? (provider?.name === "mock" ? "mock" : MODELS.embedding);
+  const countToday = deps.countToday ?? countTodayFromDb;
+  const meter = deps.meter ?? meterToDb;
+
+  if (!provider) return { ok: false, reason: "disabled" };
+
+  // Rule 3, identically to complete(): counted before dispatch, fails closed.
+  const used = await countToday(opts.userId);
+  if (used >= DAILY_CALL_CAP) return { ok: false, reason: "cap" };
+
+  const startedAt = Date.now();
+  let vector: number[];
+  let usage: Usage;
+
+  try {
+    const res = await provider.embed({
+      model,
+      input: opts.input,
+      purpose: opts.purpose,
+      dimensions: EMBEDDING_DIM,
+    });
+    vector = res.vector;
+    usage = res.usage;
+  } catch {
+    await safeMeter(meter, {
+      userId: opts.userId,
+      route: opts.route,
+      tier: "embedding",
+      model,
+      usage: EMPTY_USAGE,
+      status: "error",
+      attempts: 1,
+      latencyMs: Date.now() - startedAt,
+    });
+    return { ok: false, reason: "provider" };
+  }
+
+  // The one thing that can be "malformed" here. A vector of the wrong width is
+  // caught at this boundary rather than by Postgres rejecting the insert,
+  // because the DB would fail the write halfway through a corpus backfill and
+  // leave the corpus in a partially-embedded state for a reason nobody could see.
+  const ok = vector.length === EMBEDDING_DIM;
+
+  await safeMeter(meter, {
+    userId: opts.userId,
+    route: opts.route,
+    tier: "embedding",
+    model,
+    usage,
+    status: ok ? "ok" : "invalid",
+    attempts: 1,
+    latencyMs: Date.now() - startedAt,
+  });
+
+  if (!ok) return { ok: false, reason: "invalid" };
+  return { ok: true, vector, usage, model };
 }
 
 /**

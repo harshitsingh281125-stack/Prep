@@ -78,7 +78,7 @@ owned-vs-not-owned):
 |-------|--------|---------|-----|
 | `/api/roadmaps/generate` | POST | onboarding answers → schema-valid roadmap → persist; seeded fallback | ✅ reasoning tier |
 | `/api/roadmaps/[id]` | DELETE | delete a roadmap (cascades its tree) | ❌ |
-| `/api/topics/[id]/detail` | POST | generate mental model + exercises + (unverified) resources → persist to `topics.detail`; seeded fallback. **RAG-grounds** the resources in Phase 4.5 | ✅ reasoning tier (+ `embed()` in 4.5) |
+| `/api/topics/[id]/detail` | POST | **RAG (Phase 4.5):** embed the topic → corpus search → grounded generation whose resources are real vetted links; empty retrieval falls back to generated `unverified` resources, then to the seeded template | ✅ `embed()` + reasoning tier |
 | `/api/recall/[cardId]/grade` | POST | run the scheduler, write next due date + review log | ❌ (self-grade only — see below) |
 | `/api/recall/generate` | POST | derive recall cards for one topic; seeded fallback, dedupes | ✅ classification tier |
 | `/api/sessions` | POST | log study hours (validates minutes + roadmap/topic ownership) | ❌ |
@@ -229,7 +229,83 @@ ai_usage (
   created_at timestamptz not null default now()
 )
 create index ai_usage_user_day_idx on ai_usage (user_id, created_at desc);
+
+-- Phase 4.5. The RAG corpus: hand-vetted references, GLOBAL rather than per-user.
+-- 48 rows across 7 topic_areas, curated in 0008_resources_seed.sql.
+create extension if not exists vector with schema extensions;
+
+resources (
+  id          uuid primary key default gen_random_uuid(),
+  topic_area  text not null,          -- curation tag: 'react' | 'js-async' | …
+  title       text not null,
+  url         text not null unique,   -- real, HTTP-verified at curation time
+  kind        text not null,          -- doc|deep|article|talk|spec (check-constrained)
+  summary     text not null,          -- THIS is the text that gets embedded
+  embedding   extensions.vector(1536),-- NULL until scripts/embed-corpus.ts fills it
+  created_at  timestamptz not null default now()
+)
+create index resources_area_idx on resources (topic_area);
+create index resources_embedding_idx on resources using hnsw (embedding extensions.vector_cosine_ops);
 ```
+
+**Why `vector(1536)` and not the model's native 3072** — measured, not assumed
+(probe, 2026-08-13): `gemini-embedding-001` returns 3072 dims at unit length and
+honours `outputDimensionality` to truncate, but the truncated vectors come back
+**not** normalised (1536 → L2 0.7023). We take 1536 regardless because **pgvector
+cannot index a `vector` wider than 2000 dimensions** (HNSW and IVFFlat both
+refuse) — at 3072 the options are a sequential scan forever or `halfvec` at half
+precision. 1536 is a Matryoshka truncation, so the leading dims carry most of the
+signal. The backfill normalises: irrelevant under `vector_cosine_ops` (cosine is
+scale-invariant, so both the ranking and the floor are unaffected), but it removes
+a trap if the opclass is ever changed to inner-product or L2.
+
+**`resources` is NOT "the table without RLS" — that plan was a hole.** Earlier
+drafts of this document and Rules.md described it that way. On Supabase every
+`public` table is granted select/insert/update/delete to `anon` and
+`authenticated` by default, and **RLS is what narrows those grants** — so a public
+table with RLS *off* is world-**writable** with the anon key, i.e. anyone could
+inject a URL into the one list this feature promises is trustworthy. As shipped:
+RLS is **enabled**, with `for select using (true)` (shared public reference data)
+and **no** write policy at all, so every client write is denied and curation goes
+through migrations and the service role. A redundant `revoke insert, update,
+delete … from anon, authenticated` backs that up in case a later migration
+copy-pastes a `for all` policy from a sibling table.
+
+So the Rule 5 exception is narrower than originally advertised: **`resources` is
+the one table with no `user_id` PREDICATE, not the one table with no RLS.** It is
+the same two-axis shape as `ai_usage` — *ownership decides who may READ; whether
+the value enforces a product rule decides who may WRITE* — with the read scope
+widened from "own rows" to "everyone" because the data is public rather than
+personal.
+
+### The retrieval query — `match_resources()`
+```sql
+create or replace function public.match_resources(
+  query_embedding extensions.vector(1536),
+  match_count     int   default 5,
+  min_similarity  float default 0.64
+) returns table (id uuid, topic_area text, title text, url text,
+                 kind text, summary text, similarity float)
+language sql stable security invoker
+set search_path = public, extensions
+as $$
+  select r.id, r.topic_area, r.title, r.url, r.kind, r.summary,
+         1 - (r.embedding <=> query_embedding) as similarity
+  from public.resources r
+  where r.embedding is not null
+    and 1 - (r.embedding <=> query_embedding) >= min_similarity
+  order by r.embedding <=> query_embedding
+  limit match_count;
+$$;
+```
+It is a database function because supabase-js has no vocabulary for a vector
+operator — there is no way to express `order by embedding <=> $1` through the
+client library. `security invoker` + a pinned `search_path` are both direct
+consequences of the Phase 0 SECURITY DEFINER bug (memory.md). **Honest note on
+the index:** at 48 rows the planner will very likely seq-scan, and it should — an
+ANN index earns its keep in the thousands. It exists so the query doesn't have to
+change as the corpus grows, and because adding it to a live table later is the
+expensive version of the same decision.
 
 **`ai_usage` is the one table whose RLS is deliberately NOT the flat `for all`
 policy** every other table here uses. It gets `for select using (user_id =
@@ -398,7 +474,33 @@ async function complete<T>(opts: {
 >;
 
 // Phase 4.5 (RAG): embed() joins the same module, metered identically (Rules 7/8/11).
+async function embed(opts: {
+  route: string;
+  userId: string;
+  input: string;
+  purpose: 'query' | 'document';   // retrieval embeddings are asymmetric
+}, deps?: Partial<GatewayDeps>): Promise<
+  | { ok: true;  vector: number[]; usage: Usage; model: string }
+  | { ok: false; reason: 'cap' | 'provider' | 'invalid' | 'disabled' }
+>;
 ```
+
+**`embed()` differs from `complete()` in three deliberate ways.** (1) **No retry.**
+`complete()` retries once because a model can return malformed JSON and then valid
+JSON for the same prompt — the failure is non-deterministic. An embedding has no
+schema to get wrong; the only non-network failure is a **width** mismatch, which is
+a config error that reproduces exactly, so retrying would spend a second call from
+the user's cap to fail identically. (2) **No `validate` callback** — the sole
+correctness property is the vector width, and the gateway already knows it
+(`EMBEDDING_DIM`), so the caller isn't asked. It is checked *here* rather than left
+to Postgres, because a rejected insert would abandon a corpus backfill half-done.
+(3) It writes `ai_usage` with `tier: 'embedding'`, which is what makes the true cost
+of grounding visible: **two metered calls per topic, not one.**
+
+`Provider.embed()` is **required**, not optional, even though one route uses it —
+an adapter that can complete but not embed would fail at runtime in the middle of a
+user's request, and making it part of the interface turns "can this provider serve
+Prep?" into a compile-time question.
 
 **Why a union and not an exception.** An AI failure is a routine, expected branch
 here — Rule 9 says it must never hard-block a flow. Forcing every call site to
@@ -491,45 +593,69 @@ in Prep that has one. RAG's job here is narrow and honest: **ground the ranked-
 resources list on real, vetted documents so no link is invented.** Mental-model and
 exercises stay pure generation — no retrieval problem there, so no retrieval.
 
-**Storage — pgvector in the same Postgres (no new datastore).**
-```sql
-create extension if not exists vector;
+**Storage — pgvector in the same Postgres (no new datastore).** Schema, index,
+RLS and the `match_resources()` function are in §4 above, as applied by
+`0007_resources.sql`. Two things changed between the sketch and the build and are
+called out there: the table **does** have RLS (a `true` read predicate, no write
+policy — "no RLS" on Supabase means world-writable), and `kind` has five values
+rather than four so a corpus row maps onto the UI's existing resource chips
+without a lossy translation.
 
-resources (
-  id uuid primary key default gen_random_uuid(),
-  topic_area text not null,        -- coarse tag, e.g. 'react' | 'system-design'
-  title text not null,
-  url text not null,               -- a real, hand-vetted link
-  kind text not null,              -- 'doc' | 'article' | 'talk' | 'spec'
-  summary text not null,           -- what it covers (embedded)
-  embedding vector(1536)           -- dims match the chosen embedding model
-)
--- approximate-NN index for similarity search:
-create index resources_embedding_idx on resources
-  using hnsw (embedding vector_cosine_ops);
-```
-This corpus is **global, not per-user** (shared vetted references), so it's the one
-table *without* a `user_id`/RLS predicate — reads are public-safe, writes are
-server-only via service role. (Call that out explicitly; it's the deliberate
-exception to Rule 5, and an interviewer will ask why this table has no RLS.)
+**The retrieval → grounding flow (`/api/topics/[id]/detail`), as built:**
+1. Build a query string from the topic name + **its week title** —
+   `lib/rag/query.ts`, pure and unit-tested. It deliberately excludes the roadmap
+   title: those are model-written plan names ("8 weeks to a senior bar") whose
+   vocabulary appears in no technical document, so they pull the query vector away
+   from the corpus without adding subject signal.
+2. `gateway.embed({ purpose: 'query' })` → query vector, metered like any other
+   call (Rule 11).
+3. `match_resources()` — cosine top-k over `resources`, above a **similarity
+   floor**.
+4. **Grounded** `complete({ tier: 'reasoning' })`: the retrieved documents are
+   given to the model **numbered**, and the schema asks only for
+   `{ ref, why }` pairs.
+5. **Fallback (Rule 9):** empty retrieval → the Phase 4 ungrounded generation,
+   resources flagged `unverified: true`; that failing twice → the seeded template.
+   Three rungs, each labelled in the response (`source: 'rag' | 'ai' | 'seed'`).
 
-**The retrieval → grounding flow (`/api/topics/[id]/detail`):**
-1. Build a query string from the topic name + roadmap track.
-2. `gateway.embed({ input: query })` → query vector.
-3. `pgvector` cosine-similarity search over `resources` (top-k, filtered by
-   `topic_area`) → the retrieved docs.
-4. `gateway.complete({ tier: 'reasoning', … })` with the retrieved docs in context
-   and a schema that requires resources to be **selected/ranked/annotated from the
-   provided list** — the model may not introduce a URL that isn't in the retrieved
-   set.
-5. **Fallback (Rule 9):** if retrieval is empty (niche topic, thin corpus), fall
-   back to generated resources **flagged `unverified: true`** in the `detail` JSON so
-   the UI can mark them. RAG never hard-blocks.
+**The two design decisions worth defending in §5b:**
 
-**Corpus seeding.** v1 corpus is a **hand-curated seed migration** of vetted
-MDN/spec/article/talk entries per weak-area — small, honest, defensible. Not
-scraped. Embeddings for the seed rows are computed once (a one-off script calling
-`gateway.embed()` on the batch) and written to the `embedding` column.
+**(a) The model never handles a URL — it cites by index.** The original plan was
+"a schema that requires resources to be selected from the provided list", then
+validating that no returned URL is outside the retrieved set. What shipped is
+stronger: `GROUNDED_DETAIL_SCHEMA` has no `url`, `title` or `tag` field, so the
+model returns a 1-based `ref` into the documents we supplied plus a one-line
+`why`, and `validateGroundedDetail()` resolves that index back to **our** row.
+A hallucinated citation isn't rejected — it's **unrepresentable**, and the only
+remaining check is that an integer is in range. Same move as "the model writes
+content, not contract" (§4/validate.ts): *don't validate away a failure you can
+make impossible to express.* The honest cost: the model can no longer recommend a
+genuinely good document that isn't in the corpus.
+
+**(b) The similarity floor is the gate, and it was calibrated, not guessed.** The
+sketch said "top-k filtered by `topic_area`"; the filter was dropped and the floor
+kept. A plain top-k always returns k rows however irrelevant, so the floor is what
+makes "we have nothing for this topic" expressible — and therefore what makes the
+Rule 9 fallback branch reachable at all. Filtering by area on top would need a
+keyword classifier from a generated topic name to a corpus tag, adding a failure
+mode (misclassification silently excludes the right documents) to solve a problem
+the embedding already solves, since cross-domain bleed shows up as a low score.
+**The number matters more than it looks:** it started at 0.55 and that was wrong —
+Gemini embeddings are not zero-centred, and unrelated text ("Kafka consumer group
+rebalancing") still scores ~0.55–0.57. It is **0.64**,
+above every off-domain score measured and below every relevant one, and
+`npm run probe:retrieval` re-checks that separation and exits non-zero if an
+off-domain query ever clears the floor.
+
+**Corpus seeding.** A **hand-curated seed migration** (`0008_resources_seed.sql`)
+of vetted MDN / WHATWG / react.dev / web.dev / RFC / spec entries across 26
+topic areas — small, honest, defensible, not scraped. **Every URL was fetched and
+confirmed to return 200 before it was written into the migration**, which caught a
+404 and a redirect-to-a-duplicate; shipping links one is merely confident about
+would have reproduced by hand the exact failure this phase removes. Embeddings are
+computed afterwards by `scripts/embed-corpus.ts` through `gateway.embed()`, so the
+corpus stays reviewable as plain SQL in git rather than as 48 unreadable 1536-float
+literals, and re-embedding after a model change is a re-run rather than a migration.
 
 **Why not LangChain/LangGraph for any of this** (asked-about, so decided here):
 the retrieval pipeline is *embed → pgvector query → grounded completion* — three

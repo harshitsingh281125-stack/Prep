@@ -64,19 +64,29 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
-  horizontal slices. **Phases 0, 1, 2, 3 and 4 are DONE** (Phase 1 QA-gate closed
+  horizontal slices. **Phases 0, 1, 2, 3, 4 and 4.5 are DONE** (Phase 1 QA-gate closed
   2026-07-31; Phase 2 closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass;
   Phase 3 closed 2026-08-08 — Vitest 77/77, E2E 31/31, full manual pass incl. the
   Table-Editor elapsed-time cases; Phase 4 closed 2026-08-12 — Vitest 165/165,
   E2E 51/51, full manual pass all 76 cases incl. the cap/fallback env-injection
-  suites); **next up is Phase 4.5 (RAG — grounding topic resources on a curated
-  corpus)**.
+  suites; Phase 4.5 closed 2026-08-14 — Vitest 210/210, E2E 64/64, RAG corpus 202
+  docs / 26 areas, manual matrix reported run by the owner with no failures, though
+  **no per-case ledger was kept** for that one); **next up is Phase 5 (print/export
+  + polish)**.
 - **AI is live.** All generation goes through `lib/ai/gateway.ts`; `lib/ai/config.ts`
   is the only file naming a model (`gemini-3.5-flash` / `gemini-3.5-flash-lite`).
   Daily cap 25/user (`AI_DAILY_CALL_CAP` overrides). **`AI_PROVIDER=mock` gives a
   deterministic offline provider** with `AI_MOCK_MODE=ok|malformed|malformed-once|error`
   for exercising the Rule 9 paths — the E2E suite runs on it, on port 3101.
   Next.js reads env only at startup: **restart the dev server after any change.**
+- **RAG corpus upkeep (Phase 4.5).** Topic resources are grounded on a curated
+  `resources` corpus (202 docs / 26 areas). Coverage is a *maintained* property, not
+  a milestone — generated roadmaps invent topic names the corpus has never seen.
+  Loop: `npm run probe:coverage` (reports GROUNDED/THIN/MISSING against the real
+  roadmaps and prints a paste-ready block) → curate a new `supabase/migrations/
+  00NN_resources_*.sql`, **HTTP-verifying every URL returns 200 at the exact path**
+  → apply it → `npm run embed:corpus` → `npm run probe:retrieval` to re-check the
+  similarity floor, which must be re-calibrated as the corpus grows.
 - **QA gate after every feature (Rule 27).** When a feature is code-complete, write a
   test-case doc in `tests/phase-<n>-<feature>.md` **before** calling it done —
   QA-lead-grade coverage (happy path + edge/negative/security/boundary/concurrency),

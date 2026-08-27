@@ -28,6 +28,14 @@ function fakeProvider(script: (string | Error)[]): Provider & { sent: Recorded[]
         usage: { inputTokens: 100, outputTokens: 50, cachedInputTokens: 20 },
       };
     },
+    // Required by the Provider interface since Phase 4.5. Unused by these
+    // completion tests; the embedding path has its own fakes in ai-embed.test.ts.
+    async embed({ dimensions }) {
+      return {
+        vector: new Array(dimensions).fill(0),
+        usage: { inputTokens: 10, outputTokens: 0, cachedInputTokens: 0 },
+      };
+    },
   };
 }
 
