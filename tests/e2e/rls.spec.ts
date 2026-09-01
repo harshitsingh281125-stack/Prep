@@ -28,7 +28,20 @@ test.describe("RLS cross-user isolation", () => {
 
     try {
       // RLS-01: B viewing A's roadmap → 404 (notFound, because RLS returns no row).
+      //
+      // Assert the BODY as well as the status. The status alone is the weaker half
+      // of this check: Phase 5 briefly turned this 404 into a 200 by adding a
+      // `loading.tsx` (a Suspense boundary makes the route STREAM, so the headers
+      // flush before the page can call notFound()) — and a status-only assertion
+      // cannot tell "wrong status code, correct empty page" apart from "user B is
+      // reading user A's roadmap". Those are a cosmetic bug and a catastrophe, and
+      // this test has to distinguish them. See memory.md (2026-08-27).
+      // Content first, status second — deliberately. The content assertion is the
+      // one that would catch an actual breach, and it must not sit behind a
+      // weaker assertion that can abort the test before it runs.
       const roadmapResp = await pageB.goto(`${base}/roadmap/${roadmapId}`);
+      await expect(pageB.getByText("Nothing here.")).toBeVisible();
+      await expect(pageB.locator("main .print-week")).toHaveCount(0);
       expect(roadmapResp?.status()).toBe(404);
 
       // RLS-02: B viewing A's topic → 404.

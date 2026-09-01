@@ -565,6 +565,136 @@ would have reproduced by hand the exact failure the feature removes.
 
 **"Why not LangChain / a vector DB?"** → see §5 rapid-fire.
 
+### 4h. Print/export, and the honesty label [Phase 5 — built]
+
+**"Walk me through the export feature."**
+> `/roadmap/[id]/print` is a server component in a **sibling route group**,
+> `app/(print)/`, whose layout is one light-only wrapper div and nothing else. Route
+> groups add no URL segment, so it still reads as a child of the roadmap route while
+> rendering under a completely different layout. A button calls `window.print()`.
+
+**"Why not generate a real PDF server-side?"**
+> The browser's print pipeline already does pagination, page size, margins, headers
+> and Save-as-PDF, on every platform, for free. Doing it server-side means headless
+> Chromium — which doesn't fit a Vercel serverless function — or a PDF library that
+> makes me re-implement layout by hand. I'd revisit it the moment I need to *email*
+> someone a PDF, because that's the point where "the user goes through a print
+> dialog" stops working. Right now that's not a requirement, so it's a dependency I
+> can't justify.
+>
+> **What I give up:** I can't hand them a file directly, and I don't control the
+> final pagination — I only influence it with `break-inside: avoid`.
+
+**"Why a separate route group instead of just hiding the sidebar with print CSS?"**
+> Two structural reasons, neither cosmetic. The app layout is
+> `height:100vh; overflow:hidden`, which would clip a multi-page document to one
+> screenful. And the on-screen preview would render in the user's dark theme — so
+> what you saw wouldn't be what you got, which defeats the point of a preview.
+
+**"Anything interesting in the print CSS?"**
+> Two things I had to think about. First, it's the only place in the app with raw
+> hex instead of my OKLCH tokens — deliberate, and it's a stated exception in my
+> rules. Print colour management isn't the screen pipeline, `print-color-adjust`
+> support is uneven, and paper has exactly one theme; a page inheriting `--bg`
+> prints the dark theme as a black rectangle. Second, it's the only *stylesheet* in
+> an app that otherwise styles inline — because `@page` margins and `break-inside`
+> have no inline form at all. That's a nice concrete answer to "when does inline
+> styling stop working": pseudo-classes, media queries, and print rules.
+>
+> I also force `print-color-adjust: exact`, because browsers strip backgrounds by
+> default to save toner — which would silently erase the kill-criterion strips, the
+> mastery checkboxes and the behind-pace banner, i.e. every element whose *meaning*
+> is carried by its fill. And mastery prints as a filled **box**, not a coloured
+> dot, so a greyscale photocopy is still readable.
+
+**"What does the print view compute?"**
+> Almost nothing, on purpose. It imports the same `lib/progress/compute.ts`
+> functions the dashboard does, so the printed hours, pace, accuracy and blockers
+> can't disagree with the screen — and the print-out is the copy that gets carried
+> into a room and quoted, so it's the worst possible place for a divergent number.
+> The only new logic is bucketing recall cards into overdue / today / next-7-days /
+> later.
+
+**"Why is that bucketing worth a separate pure function?"**
+> Because of the day boundary. It buckets by **UTC calendar day**, not a rolling
+> 24-hour window — my scheduler adds whole days, so a card the scheduler placed at
+> "+1d" must not print under *Today* just because the page was rendered at 11pm.
+> That's a boundary you'd only ever catch by rendering a page at 23:59, which
+> nobody does — so `now` is injected and it's a unit test. Same discipline as the
+> scheduler and the progress maths.
+
+---
+
+**The better story in this phase: adding a role that my fallback can't serve.**
+
+**"You added a Backend role. Your seeded fallback catalog is a frontend
+curriculum. Doesn't that break your own AI-never-blocks rule?"**
+> That's exactly the objection I'd held the role back for, for two phases. My rule
+> is that AI must never hard-block a flow — schema-validate, retry once, fall back
+> to a seeded template. The problem is that the seeded template *is* a frontend
+> curriculum. So a backend candidate whose generation failed would get a frontend
+> plan handed to them as their plan. The rule wouldn't break loudly; it'd break
+> **quietly**, which is the only way that rule can meaningfully break.
+>
+> I'd written it up as a binary: either don't ship the role, or spend weeks
+> authoring a real backend curriculum. That framing was wrong, and I only saw it
+> when I re-read my own note — I'd described the failure as happening "quietly",
+> and the fix for *quietly* isn't *don't ship*, it's *loudly*. So there was a third
+> option: ship the role and make the fallback impossible to miss.
+
+**"How does 'loudly' work?"**
+> A pure function, `templateMismatch(role, generatedFrom)`, that fires only when
+> both halves are true: the seeded generator actually ran, **and** the role needs a
+> track the catalog isn't. Then an amber TEMPLATE MISMATCH notice on the roadmap
+> screen and on the print-out, naming their role and saying plainly that the
+> structure is sound but the topics are from the wrong track.
+>
+> Amber and not red, deliberately — nothing is broken. The week structure, the
+> hours, the pace maths are all correct for their answers. Only the content is off.
+
+**"Where does `generatedFrom` come from?"**
+> This is the part I'd lead with, because it reversed a decision I'd made one phase
+> earlier and I can say exactly why. In Phase 4 I returned the generator path in the
+> API response and deliberately **didn't** store it — it was a fact about one
+> request, and my `/usage` screen was already the durable audit trail of every
+> dispatch.
+>
+> Adding the backend role changed the *category* of that fact. "The model was down
+> so this is the frontend template" stopped being a property of an HTTP request and
+> became a property of **the plan someone is held to for eight weeks**. A response
+> field can't label a row you open three weeks later — the toast that announced it
+> is long gone. So it became a column: `roadmaps.generated_from`, `'ai' | 'seed' |
+> null`, with a CHECK constraint.
+
+**"What's the null for?"**
+> Every roadmap created before that migration. And the rule I care about is that
+> **null is read as *unknown*, never as `'ai'`**. If I defaulted them to `'ai'` I'd
+> be silently un-labelling exactly the rows I can't vouch for; if I defaulted them
+> to `'seed'` I'd put a false warning on every old generated roadmap. Silence is the
+> only honest read of a fact I never recorded. That's a one-line behaviour with a
+> unit test on it, and it's the kind of thing that quietly rots if nobody names it.
+
+**"Does the CHECK constraint stop tampering?"**
+> No, and I want to be precise about that because it'd be easy to overclaim. It
+> guarantees the column only ever holds `'ai'`, `'seed'` or null, so nothing
+> downstream has to defend against junk. It does **not** stop an owner flipping
+> their own row from `'seed'` to `'ai'` with the anon key and dismissing their own
+> notice — RLS scopes writes to the owner and there's no column-level grant. I
+> accepted that: the only person deceived is the one doing it, no other user's data
+> is reachable, and the fixes — a BEFORE UPDATE trigger, or revoking client writes
+> on the whole table and routing notes and mastery through the server — cost more
+> than the threat is worth. It's written into the migration so nobody later reads
+> that CHECK as a tamper-proofing claim it never made.
+
+**"Why doesn't Fullstack get the warning?"**
+> Because the catalog genuinely serves it in part — its JS, React and system-design
+> blocks are real fullstack interview content, and I'd already accepted in Phase 4
+> that its database and API weak areas just don't front-load anything. Flagging it
+> would cry wolf on a mostly-correct plan, and a warning that fires on good plans is
+> one people learn to ignore. The warning is only worth having if it's rare.
+
+---
+
 ### 4f. The sandboxing trade-off [cut / v2]
 - _Why server-side code execution was consciously cut for v1_ (security surface:
   container isolation, resource limits, escape risk + cost) → client-side iframe instead.
@@ -580,6 +710,10 @@ would have reproduced by hand the exact failure the feature removes.
 | Why pgvector, not a dedicated vector DB (Pinecone/Weaviate)? | The corpus is small and already lives next to everything else in Postgres. pgvector + an HNSW index gives me similarity search with zero new infra, one backup story, and I can join resources to topics in SQL. A separate vector DB is operational overhead I'd have to justify at hundreds of docs, not dozens. |
 | Why not multi-provider LLM shopping? | Marginal savings at MVP scale vs. the overhead of a multi-provider layer. "Cost-aware tier routing + caching within one provider behind a gateway" is the cleaner story — and my gateway already makes switching a config edit, so I get the option value without the runtime complexity. Revisit at hundreds of users. |
 | Why a free-tier model (Gemini), not Claude? | Deliberate for a solo portfolio project — v1 runs at ~$0. Free tier is rate-limited and its data-use terms differ from paid, which I'd change before real users; the provider-agnostic gateway makes that a config swap, not a rewrite. Quality gap on structured JSON is small and my schema-validate-+-retry-+-seeded-fallback path absorbs it. |
+| Why the browser's print dialog instead of generating a PDF? | The browser already does pagination, page size, margins and Save-as-PDF on every platform. Server-side means headless Chromium (doesn't fit a Vercel function) or a PDF library that makes me re-implement layout. The trade I accept: I can't hand them a file, and I only influence pagination via `break-inside: avoid`. I'd revisit the day I need to *email* someone a PDF. |
+| Why a CSS-only mobile layout instead of a drawer? | Under 860px the sidebar becomes a top bar and the grids collapse — no JS. A drawer means a state machine plus focus trapping, escape handling, `aria-expanded` and scroll locking: a real accessibility surface, added to hide **four links that fit on one row**. |
+| Why is print the only place you use raw hex? | Print colour management isn't the screen pipeline, `print-color-adjust` support is uneven, and paper has one theme — a page inheriting my `--bg` token prints the dark theme as a black rectangle. It's the one exception my own rules name, and it's also the only stylesheet in an inline-styled app, because `@page` and `break-inside` have no inline form. |
+| Why doesn't your 404 say "forbidden"? | Because that's an existence oracle. Under RLS another user's roadmap id returns zero rows, which becomes the same 404 as a made-up id. Saying "you don't have access" would confirm to a stranger that the id is real. The indistinguishable 404 is a security property, not just copy. |
 | Why not a component/animation library (shadcn, Animate UI)? | Hand-rolled OKLCH design + one surgical animation dep (Framer Motion). Adding a design system I didn't need is complexity I'd have to defend. |
 | Why no charting library (Recharts, Chart.js)? | The two charts are a `<polyline>` with gridlines and a row of proportional bars — roughly twenty lines of coordinate math. A charting lib would add a dependency, a theming layer fighting my OKLCH tokens, and bundle weight, to draw two rectangles and a line. I'd reach for one at the point I need axes, zoom, or tooltips I don't want to own. |
 | Why is `roadmaps.status` a dead column instead of the source of truth? | Because nothing naturally writes it. A roadmap decays into "stalled" through the *passage of time*, not a user action — so a stored status only refreshes when you touch the roadmap, meaning it's stale exactly when it matters, and keeping it honest needs a cron. Deriving on read can't go stale and is a pure unit-testable function. The cost is that three screens must call the same function, which I did in one change so they can't disagree. |
@@ -602,6 +736,15 @@ Naming a limitation *first* reads as senior. Keep a real list:
 - RAG corpus is **hand-curated and small** — good precision on covered areas, thin
   coverage on niche topics (which fall back to `unverified` generated resources). It's
   quality-over-breadth by choice, not a scraped index; scaling coverage is a v2 job.
+- **There is no backend curriculum.** I ship a Backend role, but my seeded fallback
+  catalog is frontend content. When AI generation fails for a backend user they get a
+  frontend plan — correctly and permanently *labelled* as a template mismatch, but
+  labelled rather than fixed. Authoring real per-role catalogs is a phase of its own
+  and I chose disclosure over pretending. I'd rather say that than have someone find
+  it.
+- **Print pagination is the browser's, not mine.** `break-inside: avoid` influences
+  where week cards break; it doesn't guarantee it on every engine, and I verify it by
+  actually printing rather than by a test.
 - _(add real ones as they show up)_
 
 ## 7. The "one real bug I hit and fixed" story [ongoing]

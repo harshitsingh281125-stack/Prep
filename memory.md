@@ -497,6 +497,61 @@
   design) from the pasted design source + `project-context.md`. Design tokens
   extracted verbatim from `Prep.dc.html`.
 
+- **2026-08-27 · Print/export is `window.print()` on a dedicated route, not a
+  generated PDF file.** (Phase 5.) `/roadmap/[id]/print` renders a light-only,
+  print-optimised document; a button calls `window.print()`. The browser's own
+  pipeline already does pagination, page size, margins, headers and Save-as-PDF on
+  every platform. The alternatives both cost more than they return: headless
+  Chromium does not fit a Vercel serverless function, and a PDF library means
+  re-implementing layout by hand. **What we give up, stated plainly:** we cannot
+  hand the user a file directly — they go through the print dialog — and we do not
+  control the final pagination, only influence it with `break-inside: avoid`.
+
+- **2026-08-27 · The print view lives in a SIBLING route group, `(print)`, not
+  inside `(app)` with print-CSS hiding the chrome.** (Phase 5.) Two reasons, both
+  structural rather than aesthetic: `(app)/layout.tsx` sets
+  `height:100vh; overflow:hidden`, which clips a multi-page document to one
+  screenful; and the on-screen preview would render in the user's dark theme, so
+  what you saw would not be what you got. Route groups contribute no URL segment,
+  so `/roadmap/[id]/print` — the path Architecture has specified since Phase 0 —
+  is unchanged. Documented in nextjs-tutorial §20.
+
+- **2026-08-27 · The print view recomputes nothing.** (Phase 5.) It imports the
+  same `lib/progress/compute.ts` functions the dashboard uses. A second
+  implementation of "hours logged" would eventually disagree with the first, and
+  the print-out is the copy that gets carried into a room and quoted — so it is the
+  worst possible place for a divergent number. The only new logic is
+  `lib/print/schedule.ts` (bucketing recall cards by **UTC calendar day**, Rule 15,
+  pure with `now` injected).
+
+- **2026-08-27 · Raw hex in the print stylesheet, and a STYLESHEET at all.**
+  (Phase 5.) Rule 21's single stated exception, used for the first time. Print
+  colour management is not the screen pipeline, `print-color-adjust` support is
+  uneven, and paper has exactly one theme — a page inheriting `--bg` prints the
+  dark theme as a black rectangle. Separately, this is the app's only
+  class-and-stylesheet surface rather than inline styles, because `@page` margins
+  and `break-inside` **have no inline form at all**.
+
+- **2026-08-27 · Mobile: CSS-only, sidebar → top bar. No drawer.** (Phase 5.)
+  Under 860px the shell stacks and the 244px sidebar becomes a horizontal top bar;
+  the 4-up stat grids collapse to 2-up then 1-up. An off-canvas drawer would add a
+  JS state machine plus focus trapping, escape handling, `aria-expanded` and scroll
+  locking — a real accessibility surface — to hide **four links that fit on one
+  row**. The `height:100vh; overflow:hidden` frame is also dropped at that
+  breakpoint: on a phone the app must scroll as one document, or the inner scroll
+  area fights the browser's URL-bar collapse and you get two nested scrollbars.
+  This also forced the app's first class-based CSS: an inline `style` attribute
+  cannot express a media query, a pseudo-class, or a print rule.
+
+- **2026-08-27 · The 404 never says "forbidden".** (Phase 5, `app/not-found.tsx`.)
+  Two different things land there: a URL matching no route, and an RLS-scoped query
+  that returned nothing — which in Prep almost always means *"that row exists but
+  is not yours"*. The copy deliberately does not distinguish them, because saying
+  "you don't have access" would confirm to a stranger that a given roadmap id is
+  real. RLS already collapses "not yours" into "no rows"; the UI must not
+  un-collapse it. An indistinguishable 404 is a security property here, not tidy
+  copy.
+
 ## Open questions (decide deliberately)
 
 - ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28, CONFIRMED
@@ -523,20 +578,18 @@
   week numbers, no hours, no week count. Those are the user's contract, computed
   server-side. See `ROADMAP_SCHEMA` + `validateRoadmap` in `lib/ai/validate.ts` and
   the "content, not contract" decision above.
-- **Onboarding question wording / weak-area taxonomy / role scope** — *sharpened
-  2026-08-12, deliberately deferred past Phase 4.* The role options are all
-  frontend-flavoured, and the weak-area options ("Async JS", "React internals") are
-  frontend-specific. **The constraint that makes this more than a copy change:** the
-  seeded fallback catalog (`lib/seed/catalog.ts`) IS a frontend curriculum, lifted
-  from the design source. Add "SDE-2 · Backend" to the role list and Rule 9 quietly
-  breaks — an AI failure hands that user a *frontend* roadmap and calls it their
-  plan. So the three moves are coupled: opening up roles requires either
-  (a) role-dependent weak-area options **plus** honest labelling when the frontend
-  fallback fires for a non-frontend role, or (b) authoring real per-role catalogs,
-  which is weeks of curriculum content and a phase of its own. Decision 2026-08-12:
-  **leave it**, revisit in Phase 5 polish. *(The related weak-area **weighting** bug
-  — the plan covering only the picked areas — was a separate defect and is fixed;
-  see the bug log.)*
+- ~~**Onboarding question wording / weak-area taxonomy / role scope**~~ —
+  **SETTLED 2026-08-27 (Phase 5).** Shipped **`SDE-2 · Backend`** with backend weak
+  areas, plus a durable **TEMPLATE MISMATCH** label for the case the seeded frontend
+  catalog serves a backend candidate. The 2026-08-12 deferral said the three moves
+  were coupled and the only options were "role-dependent options + honest labelling"
+  or "author real per-role catalogs"; the first of those is exactly what was built.
+  Weak areas were already role-dependent since Phase 4. **What is still NOT done:**
+  there is no backend curriculum — the seeded fallback for a backend user is
+  frontend content, correctly labelled rather than fixed. Authoring real per-role
+  catalogs remains open and is still a phase of its own. See the reversal entry at
+  the end of this file and Architecture §5c.
+
 - Product name (still "Prep", a placeholder).
 - When to revisit the v2 code-sandbox cut.
 - ~~**[Phase 4.5] RAG corpus taxonomy + seed contents**~~ — **SETTLED 2026-08-13.**
@@ -580,6 +633,68 @@
   `SUPABASE_ACCESS_TOKEN` in Claude Code's launch shell** — `.env.local` doesn't
   reach it (that's only Next.js runtime), so MCP stayed unauthorized; verification
   was done via direct Management API calls instead.
+
+- **2026-08-27 · Adding `loading.tsx` silently downgraded a 404 to a 200 — the
+  cross-user security case went red for a reason that had nothing to do with
+  security.** *(Phase 5. Caught by the automated suite, not by eye.)*
+  **Symptom:** after adding `app/(app)/loading.tsx`, `rls.spec.ts` RLS-01 failed
+  with `Expected: 404, Received: 200` — user B requesting user A's roadmap. Two
+  other cases failed the same way (`CC-03`, deleting a roadmap then re-fetching it).
+  A security test flipping to 200 reads like a breach.
+  **What I assumed:** that I'd broken the RLS-scoped query by adding `answers` and
+  `generated_from` to its `select`.
+  **Actual root cause:** `loading.tsx` wraps its segment in a Suspense boundary,
+  which makes the route **stream**. A streamed response has already flushed its
+  HTTP headers — status **200** — by the time the async server component beneath it
+  resolves and calls `notFound()`. So the 404 *page* rendered correctly and the
+  *status code* was already committed. Nothing to do with RLS at all.
+  **How it was established, not guessed:** bisected — moved `loading.tsx` aside and
+  re-ran `rls.spec.ts` (3 passed); restored it (1 failed). The `(print)` route,
+  which also calls `notFound()` and has **no** `loading.tsx`, passed its own 404
+  cases throughout, which corroborated it from the other direction.
+  **Was anything leaked? No — and I checked rather than reasoned.** I added body
+  assertions to the failing test and re-ran: user B saw the "Nothing here." 404 page
+  and none of A's content. So this was a wrong status code over a correct page — a
+  real bug, but a cosmetic one, and it matters to say which.
+  **Fix:** `loading.tsx` is no longer at the `(app)` group root. It sits on the four
+  routes that can never 404 (`/library`, `/progress`, `/recall`, `/usage`), each
+  re-exporting `components/shell/ContentSkeleton`. `/roadmap/[id]` and the topic
+  route render blocking so `notFound()` can still set the status. **The rule, now
+  written at every copy of the file: a route that can call `notFound()` must not
+  have a `loading.tsx`.**
+  **What I changed to prevent the class:** RLS-01 now asserts the **body before the
+  status**. A status-only assertion cannot tell "wrong status code, correct empty
+  page" from "user B is reading user A's roadmap" — a cosmetic bug and a
+  catastrophe — and the weaker assertion was aborting the test before the stronger
+  one ran. The important assertion should never sit behind the flaky one.
+  **The honest cost:** the two slowest, heaviest routes are the ones that no longer
+  get a skeleton. That is the trade — a correct 404 on a security surface beats a
+  loading state — and it is worth stating rather than hiding.
+
+- **2026-08-27 · A correct accessibility fix broke a passing test by making a
+  selector ambiguous — and the test still "passed" its guard assertion first.**
+  *(Phase 5.)*
+  **Symptom:** `study-flow.spec.ts` TP-03/05/06 timed out after 60s waiting for a
+  `PATCH /rest/v1/topics` that never arrived.
+  **Root cause:** the test located the kill-criterion checkbox as
+  `page.locator("button[aria-pressed]").first()`, which was only ever correct
+  because it happened to be the **only** `aria-pressed` button in the document. I
+  then gave the sidebar's theme toggle a correct `aria-pressed` (it is a toggle
+  button; that is the right markup). The sidebar renders first, so `.first()`
+  started matching the theme toggle.
+  **The nasty part:** the test's own guard,
+  `expect(killCheckbox).toHaveAttribute("aria-pressed", "false")`, **passed** — in
+  the dark theme the theme toggle's `aria-pressed` is also `"false"`. So the guard
+  designed to catch exactly this waved it through, and the test proceeded to click
+  the theme toggle and wait forever for a database write.
+  **Fix:** `data-testid="kill-criterion"` (plus an `aria-label`) on the checkbox,
+  and the spec uses `getByTestId`.
+  **Lesson:** a structural selector that depends on being unique in the whole
+  document is a trap — it encodes an invariant nobody declared and nothing
+  enforces, and it fails *later*, in an unrelated test, when someone adds correct
+  markup elsewhere. This is the fourth instance in this project of the same shape
+  as tests/README gotchas 1/4/6: **never identify a thing by a property that is
+  only incidentally unique.**
 
 ## Deploy / infra facts
 
@@ -1141,5 +1256,41 @@
 
 ## Decisions changed / reversed
 
-_(none yet — when a settled decision changes, move it here with the reason, so the
-history is visible)_
+- **2026-08-27 · Generator provenance: reported-only → PERSISTED.** *(Phase 5,
+  migration 0012.)*
+  **What Phase 4 decided (2026-08-08):** `/api/roadmaps/generate` returns
+  `{ id, source }` and does **not** store which generator ran. The reasoning was
+  sound at the time — `source` was a fact about one request, and `/usage` was the
+  durable audit trail of every dispatch and how it ended.
+  **What changed:** Phase 5 added **`SDE-2 · Backend`**, a role the seeded
+  `CATALOG` (a frontend curriculum) cannot serve. That flipped the category of the
+  fact. "The model was down so this is the frontend template" stopped being a
+  property of an HTTP request and became a property of **the plan the user will be
+  held to for the next eight weeks**. A transient response field cannot label a row
+  somebody opens three weeks later, and the toast that announced it is long gone.
+  **Now:** `roadmaps.generated_from text check (… in ('ai','seed'))`, nullable.
+  `/usage` is unchanged and still the audit trail; this is the row's own label.
+  **The NULL rule, which is the interesting half:** every roadmap created before
+  0012 has unknown provenance, and NULL is read as *unknown*, never as `'ai'`.
+  Guessing `'ai'` would silently un-label exactly the rows we cannot vouch for;
+  guessing `'seed'` would put a false warning on every old generated roadmap.
+  Silence is the only honest read of a fact we never recorded.
+
+- **2026-08-27 · Role scope: "no backend role" → backend role + a loud fallback.**
+  *(Phase 5. Supersedes the 2026-08-12 deferral in the open-questions list.)*
+  **What was decided before:** keep the role list frontend-only, because the seeded
+  fallback catalog IS a frontend curriculum, so adding "Backend" would mean an AI
+  failure hands that user a frontend plan — **Rule 9 breaking quietly**, which is
+  the only way Rule 9 can meaningfully break.
+  **Why it changed:** the premise was right but the conclusion was one option too
+  narrow. There were three ways out, not two: (a) don't ship the role, (b) author a
+  real backend catalog (weeks of curriculum content — a phase of its own), or
+  (c) **ship the role and make the fallback impossible to miss**. (c) was invisible
+  in the original framing because the failure mode was described as "quietly", and
+  the fix for *quietly* is not *don't ship* — it is *loudly*.
+  **What shipped:** the role, backend weak areas chosen to line up with real
+  `topic_area` tags already in the Phase 4.5 corpus (so backend topic detail is
+  genuinely grounded, not recalled), `templateMismatch()`, and an amber
+  **TEMPLATE MISMATCH** notice on both the Roadmap screen and the print-out.
+  **Fullstack is deliberately NOT flagged.** The catalog serves it in part, and a
+  warning that fires on a mostly-correct plan is a warning people learn to ignore.

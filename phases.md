@@ -212,11 +212,54 @@ PASS having measured nothing.
   resources marked *unverified* and unlinked. `/usage` shows the embedding call
   metered alongside the completion — two calls per grounded topic, not one.
 
-## Phase 5 — Print/export + polish
+## Phase 5 — Print/export + polish  🟡 BUILT — awaiting the manual QA gate
 **Goal:** shippable v1.
-- Roadmap PDF/print view (`Prep-print.dc.html` as reference).
-- Empty/error/loading states, accessibility pass, mobile-reasonable layout.
-- README with the "why" behind each subsystem (interview-defensibility).
+**Status (2026-08-27):** code-complete; **Vitest 243/243, Playwright 72/72, build +
+tsc + lint clean**. Migration `0012_roadmap_provenance.sql` written **and applied**
+(column verified present via PostgREST). Branch `phase-4.5-rag`.
+**The Rule 27 gate is NOT yet closed** — [tests/phase-5-print-polish.md](./tests/phase-5-print-polish.md)
+holds **59 manual cases across 6 suites** (PRINT 16, ROLE 10, RESP 9, A11Y 12,
+STATE 8, UI 4) and has not been run. This phase is not ✅ DONE until it is, and the
+status line will record which cases actually ran versus were skipped — 4.5's line had
+to be walked back for exactly that reason.
+- **Roadmap print/export — `/roadmap/[id]/print`.** A server component in a *sibling*
+  route group, `app/(print)/`, so the URL is unchanged but the page escapes the app
+  shell (whose `height:100vh; overflow:hidden` would clip a multi-page document, and
+  whose dark theme would make the preview a lie about the print-out).
+  **Export is `window.print()`, not a server-generated PDF** — the browser already
+  does pagination, page size, margins and Save-as-PDF everywhere; server-side means
+  headless Chromium (doesn't fit a Vercel function) or re-implementing layout.
+  **It recomputes nothing** — same `lib/progress/compute.ts` functions as the
+  dashboard, so print and screen cannot disagree. Only new logic is
+  `lib/print/schedule.ts` (recall cards bucketed by **UTC calendar day**, Rule 15).
+  ⚠️ **Correction:** the reference this bullet used to name, `Prep-print.dc.html`,
+  **is not in the repo and never was** — the print view was built from design.md §8's
+  written spec, and design.md now says so.
+- **Backend role + honest fallback** (settles the long-deferred role-scope question).
+  `SDE-2 · Backend` ships with backend weak areas that line up with real Phase 4.5
+  corpus areas. Because the seeded `CATALOG` is a *frontend* curriculum, a fallback
+  generation for that role is permanently labelled **TEMPLATE MISMATCH** on the
+  Roadmap screen and the print-out — Rule 9 says AI must never hard-block, which is
+  not the same as never telling the user. Requires `roadmaps.generated_from`
+  (migration 0012), which **reverses** Phase 4's "report the source, don't store it".
+  NULL = unknown provenance and is never read as `'ai'`.
+- **Empty/error/loading states:** `error.tsx` + `global-error.tsx` (the only boundary
+  above the root layout, which is where `(app)/layout.tsx`'s `getUser()` would throw),
+  `not-found.tsx` (says "not found", never "forbidden" — distinguishing them is an
+  existence oracle), and a shared skeleton.
+  **Hard-won placement rule:** the skeleton lives on `/library`, `/progress`,
+  `/recall`, `/usage` only. A `loading.tsx` makes its route **stream**, which flushes
+  a 200 before `notFound()` can run — it silently downgraded `/roadmap/[id]`'s
+  cross-user 404 to a 200 and turned three tests red. **A route that can 404 gets no
+  `loading.tsx`.** (No data leaked; verified by asserting the body. See memory.md.)
+- **Accessibility pass:** skip link, `:focus-visible` ring, `aria-current` on nav,
+  labelled theme toggle, `prefers-reduced-motion`.
+- **Mobile-reasonable layout:** CSS-only — under 860px the 244px sidebar becomes a
+  top bar and the grids collapse. No drawer: a state machine plus focus trapping and
+  scroll locking to hide four links that fit on one row is a bad trade. This forced
+  the app's first class-based CSS, because inline styles can express neither a media
+  query nor a pseudo-class nor a print rule.
+- **README** with the "why" behind each subsystem (interview-defensibility).
 - **Demo:** export a roadmap to PDF; end-to-end run-through clean.
 
 ## Phase 6 (v2 backlog — not now)
@@ -248,10 +291,13 @@ PASS having measured nothing.
   **not** normalised). Column is **`vector(1536)`** because **pgvector cannot index a
   `vector` wider than 2000 dims** — 3072 would mean a seq scan forever or `halfvec`
   at half precision. See memory.md + Architecture §4.
-- **Onboarding wording / weak-area taxonomy / role scope** — deferred past Phase 4
-  on purpose (2026-08-12). Roles and weak-area options are frontend-specific because
-  **the seeded fallback catalog is a frontend curriculum**; adding "Backend" would
-  mean an AI failure hands that user a frontend plan (Rule 9 breaks quietly). Opening
-  it up needs either role-dependent options + honest fallback labelling, or real
-  per-role catalogs. Revisit in Phase 5. See memory.md.
+- ~~**Onboarding wording / weak-area taxonomy / role scope**~~ — **SETTLED
+  2026-08-27 (Phase 5)** via the first of the two routes this entry named:
+  role-dependent options **plus honest fallback labelling**. `SDE-2 · Backend`
+  ships; when the seeded frontend catalog serves a backend user, the roadmap is
+  permanently labelled TEMPLATE MISMATCH rather than passed off as their plan.
+  The framing here was one option too narrow — it read as "don't ship it or spend
+  weeks on a catalog", but the failure mode was *quiet*, and the fix for quiet is
+  *loud*. **Still open:** real per-role catalogs. A backend user's fallback is still
+  frontend content — correctly labelled, not fixed. See memory.md.
 - Product name (still "Prep").

@@ -56,12 +56,12 @@ in [Architecture.md](./Architecture.md) and a phase in [phases.md](./phases.md).
 |---|--------|--------------|-----|
 | 1 | **Auth** | Email/password + Google OAuth, via Supabase Auth. Theme toggle. | ✅ |
 | 2 | **Library** | Grid of roadmap cards: progress bar, mastered / recall-accuracy / due chips, status badge (behind / stalled / on-track / not-started). Empty state. Quota "N of 3 creations used". | ✅ |
-| 3 | **Onboarding** | 5-question intake (role, hiring bar, timeline, hours/week, weak areas — multi-select). Live roadmap-preview panel. Quota-locked state when at limit. | ✅ |
+| 3 | **Onboarding** | 5-question intake (role, hiring bar, timeline, hours/week, weak areas — multi-select; the weak-area options follow the role). Live roadmap-preview panel. Quota-locked state when at limit. **Roles include `SDE-2 · Backend` (Phase 5) — but the seeded fallback catalog is a frontend curriculum, so a backend roadmap built by the fallback is permanently labelled TEMPLATE MISMATCH rather than passed off as a backend plan.** | ✅ |
 | 4 | **Roadmap** | 4 stat tiles (timeline, hours logged/planned, mastered, due today) + week accordions. Each week: topics with status dots + a **kill criterion**. | ✅ |
 | 5 | **Topic / Study** | Mental-model card, ranked resources, from-scratch exercises, kill-criterion checkbox that marks the topic mastered. Per-topic notes. | ✅ |
 | 6 | **Recall** | Spaced-repetition cards on a +1/+4/+14/+30d cadence. Self-grade **Got it cold / Missed it**. Session accuracy, "queue clear" state. | ✅ |
 | 7 | **Progress** | "Behind pace" banner, stat tiles, hours bar chart (logged vs planned), recall-accuracy line chart, "what's blocking you" list. | ✅ |
-| 8 | **Print / export** | Paginated PDF of the roadmap (`Prep-print.dc.html`). | ✅ (light) |
+| 8 | **Print / export** | `/roadmap/[id]/print` — a light-only, print-optimised page (0.7in margins, week cards never split) covering the plan, its kill criteria, the pace banner, the recall schedule and the blockers. **Export is the browser's own Save-as-PDF**, not a server-generated file — see Architecture §5c. | ✅ (light) |
 
 ## 6. Core user journeys
 

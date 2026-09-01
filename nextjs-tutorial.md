@@ -758,15 +758,160 @@ gateway instead of duplicating a provider call.
 
 ---
 
+## 20. Two route groups, two layouts, one URL space *(added: Phase 5)*
+
+**What.** §4 introduced route groups as "a folder in parentheses doesn't add a URL
+segment". Phase 5 uses the *other* half of that: **sibling** groups, each with its
+own `layout.tsx`, sharing one URL space.
+
+```
+app/(app)/roadmap/[id]/page.tsx          -> /roadmap/[id]        (sidebar shell)
+app/(print)/roadmap/[id]/print/page.tsx  -> /roadmap/[id]/print  (no shell)
+```
+
+**Why (as a React dev).** In React Router you would reach for nested routes with a
+layout route, and to escape a layout you would have to hoist the child out of it —
+which changes its URL. Here the URL is decided by the *real* folders and the layout
+is decided by the *group*, so the two are independent. `/roadmap/[id]/print` reads
+like a child of `/roadmap/[id]` and renders under a completely different layout.
+
+**Where in Prep.** `app/(print)/layout.tsx` wraps the print view in a light-only
+`.print-root` div and nothing else. The alternative — keeping the page inside
+`(app)` and hiding the chrome with `@media print` — was rejected for two reasons:
+`(app)/layout.tsx` sets `height:100vh; overflow:hidden`, which would clip a
+multi-page document to one screenful, and the on-screen preview would still be
+dark-themed, so what you saw would not be what you got.
+
+**The constraint to remember:** a nested layout may **not** render `<html>`/`<body>`
+— only the root layout does, and it still wraps every group. That is exactly why
+the print stylesheet re-declares its own tokens on `.print-root` instead of
+inheriting: the root layout's no-flash script has already stamped `data-theme` on
+`<html>`, and the print view has to ignore it.
+
+**Interview Q.** *"How do you give one page a totally different chrome without
+changing its URL?"* → Sibling route groups. Groups don't contribute URL segments,
+so two of them can own different parts of the same path and each bring its own
+layout. No conflict as long as no two `page.tsx` resolve to the same route.
+
+---
+
+## 21. `loading.tsx` — a Suspense boundary you declare by filename *(added: Phase 5)*
+
+**What.** Dropping a `loading.tsx` into a segment makes Next wrap that segment's
+page in `<Suspense fallback={<Loading/>}>`. You never write the `<Suspense>`.
+
+**Why (as a React dev).** You already know Suspense; the new part is *where the
+boundary goes*. Because the boundary sits between the **layout** and the **page**,
+the layout keeps rendering while the page suspends. That is the behaviour you want
+and the one that is fiddly to arrange by hand: the sidebar stays perfectly still,
+only the content area swaps.
+
+**Where in Prep.** `app/(app)/loading.tsx` — one file covering every in-app screen.
+Every screen in `(app)` is an `async` server component awaiting Supabase, so before
+this existed a navigation just *hung on the old screen* until the query returned and
+the click looked ignored. One skeleton serves all of them because they share one
+shape (header strip, tile row, card stack) — a skeleton's job is to hold the layout
+still, not to preview a screen you are about to see anyway.
+
+**Interview Q.** *"What does `loading.tsx` actually compile to, and why doesn't your
+sidebar flicker?"* → An automatic Suspense boundary around the page. The layout is
+*outside* that boundary, so it isn't re-rendered while the page suspends.
+
+---
+
+## 22. `error.tsx`, `global-error.tsx` — error boundaries by filename *(added: Phase 5)*
+
+**What.** `error.tsx` is a React error boundary for a segment. It **must** be a
+client component (it takes a `reset` function prop and renders an `onClick` —
+neither is possible on the server), and it receives `{ error, reset }`.
+
+**Why (as a React dev).** Same concept as a class `componentDidCatch` boundary, with
+two Next-specific twists worth knowing:
+
+1. It catches errors thrown by **async server components** too. The error is
+   serialised across to the client and rendered there.
+2. In production the server error's message is **redacted** and replaced with a
+   `digest` hash. Showing the digest is what makes a user-reported "it broke"
+   traceable to a server log line.
+
+**The hierarchy is the part people get wrong.** A boundary cannot catch an error in
+its own parent, so `(app)/error.tsx` does **not** cover `(app)/layout.tsx` — and that
+layout does a Supabase `getUser()` plus a profile query on every request. That is
+what `app/global-error.tsx` is for: the only boundary above the root layout. It has
+to render its own `<html>` and `<body>`, because when it fires the root layout is
+the thing that failed.
+
+**Where in Prep.** `app/(app)/error.tsx` (red panel, **Try again** → `reset()`, plus
+a link to Library) and `app/global-error.tsx` (last resort, hard-coded colours
+because `globals.css` is imported by the very layout that broke).
+
+**Interview Q.** *"Where does an error in your root layout get caught?"* → Nowhere,
+unless you have `global-error.tsx`. A segment's `error.tsx` sits *inside* its
+layout, so it can't catch its own parent.
+
+---
+
+## 23. `not-found.tsx` — the file behind §12's `notFound()` *(added: Phase 5)*
+
+**What.** §12 covered the *function*. `not-found.tsx` is the UI it renders. It also
+handles URLs that match no route at all.
+
+**Why it matters here more than usual.** In Prep, two very different things land on
+this page: a genuinely nonexistent URL, and an RLS-scoped query that returned
+nothing — which almost always means *"that row exists but is not yours."* The copy
+must not distinguish them. Saying "you don't have access" would confirm to a
+stranger that a given roadmap id is real, which is exactly the leak that
+returning-nothing avoids. **An honest, indistinguishable 404 is a security
+property, not just tidy copy.**
+
+**Where in Prep.** `app/not-found.tsx`, at the root so it also serves unmatched
+URLs, rendering without the app shell (one way to arrive is with no valid session
+context at all).
+
+**Interview Q.** *"Why does your 404 not say 'forbidden'?"* → Because
+distinguishing them is an existence oracle. RLS already collapses "not yours" into
+"no rows"; the UI must not un-collapse it.
+
+---
+
+## 24. `generateMetadata` — per-request `<title>` *(added: Phase 5)*
+
+**What.** An exported `async function generateMetadata({ params })` returning a
+`Metadata` object. It is the dynamic counterpart to the static `export const
+metadata` from §9, and it can await data — it runs on the server, in the same
+request, and Next dedupes the fetch against the page's own.
+
+**Where in Prep.** `app/(print)/roadmap/[id]/print/page.tsx` looks up the roadmap's
+title so the tab reads *"React Internals Sprint — Prep"*. That is not cosmetic on
+this route: **the browser puts the document title into the PDF's suggested
+filename and page header**, so `generateMetadata` is the closest thing the export
+feature has to naming the file it produces.
+
+**Interview Q.** *"Static `metadata` vs `generateMetadata`?"* → Static is a plain
+object known at build time; `generateMetadata` is an async function that receives
+`params`/`searchParams` and can fetch. Use the second when the title depends on the
+row you're rendering.
+
+---
+
 ## Concepts still to come (added as we build)
 
-- **`generateMetadata` (dynamic titles per roadmap)** *(later — nice-to-have)*.
-- **`loading.tsx` / Suspense streaming** *(Phase 5 polish)*.
-- **`error.tsx` error boundaries** *(Phase 5)*.
+- ~~**`generateMetadata` (dynamic titles per roadmap)**~~ — **done in Phase 5, see
+  §24** (it names the exported PDF, which is why it landed on the print route first).
+- ~~**`loading.tsx` / Suspense streaming**~~ — **done in Phase 5, see §21.** The
+  `loading.tsx` half is built; explicit `<Suspense>` streaming of *parts* of a page
+  is still unused — every screen here fetches once and renders once.
+- ~~**`error.tsx` error boundaries**~~ — **done in Phase 5, see §22**, together with
+  `global-error.tsx` and the `not-found.tsx` file (§23).
 - **`revalidatePath` / `revalidateTag`** — we use `router.refresh()` now; tag-based
   revalidation may come with heavier caching later.
 - ~~**The SM-2 scheduling write path** — a route handler applying the algorithm~~ —
   **done in Phase 2, see §15** (dynamic segment in a route handler + why the write is
   server-side rather than client+RLS).
 - **Streaming AI responses** *(Phase 4, maybe)*.
-- **`next/font` / `next/image` optimizations** *(Phase 5)*.
+- **`next/font` / `next/image` optimizations** — *still not used, deliberately.*
+  Prep loads IBM Plex through a CSS `@import` in `globals.css` and has no raster
+  images at all (every icon is inline SVG), so `next/image` has nothing to optimise.
+  `next/font` would be a genuine improvement — it self-hosts the font and removes a
+  render-blocking third-party request — and is the obvious next win if this list is
+  ever revisited.

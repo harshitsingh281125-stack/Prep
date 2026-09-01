@@ -1,9 +1,17 @@
 # Design — Prep
 
 > The visual system, extracted verbatim from the pasted design source
-> (`Prep.dc.html`, with `Prep-print.dc.html` for the print view). This is the
-> UI source of truth (Rule 20). Companion: [PRD.md](./PRD.md) ·
-> [Architecture.md](./Architecture.md).
+> (`Prep.dc.html`). This is the UI source of truth (Rule 20). Companion:
+> [PRD.md](./PRD.md) · [Architecture.md](./Architecture.md).
+>
+> **Correction (Phase 5, 2026-08-27):** this file has referenced a second source,
+> `Prep-print.dc.html`, since Phase 0. **That file is not in the repo and never
+> was** — the only design source present is `Prep - Interview Prep OS.html`, which
+> contains no print markup (`grep 'doc-page'` and `grep '@media print'` both return
+> nothing). §8 below is therefore a written spec, not an extract, and the print
+> view built in Phase 5 was built from §8's prose. Recorded rather than quietly
+> deleted, because "extracted verbatim from the design" and "written from a
+> description" are different provenance claims and this doc asserts the first.
 
 ---
 
@@ -115,11 +123,28 @@ The copy is deliberately blunt — carry it through:
 
 ## 8. Print / export view
 
-Reference: `Prep-print.dc.html`, built on the `doc-page` web component.
+**No design-source file exists for this view** (see the correction at the top).
+The list below is the spec, and it is what Phase 5 implemented.
 - Light-only, **hex** tokens (the one place raw hex is allowed), IBM Plex.
 - `0.7in` margins, `break-inside: avoid` on week cards + stat grid (`.kx`).
 - Layout: header (logo + title + track line) → behind-pace banner → 4 stat tiles
   → week-by-week cards with kill criteria → recall schedule + blockers footer.
+
+**As built (Phase 5)** — `app/(print)/print.css` + `app/(print)/roadmap/[id]/print/`:
+- It is the app's **only stylesheet**; every other screen styles inline. Not a
+  style preference — `@page` margins and `break-inside` have no inline form, and
+  neither do media queries or pseudo-classes.
+- Tokens are re-declared on `.print-root` rather than inherited, because the root
+  layout's no-flash script has already stamped `data-theme` on `<html>` and the
+  print view must ignore it.
+- `print-color-adjust: exact`, because browsers strip backgrounds by default to
+  save toner — which would erase the kill-criterion strips, the mastery boxes and
+  the pace banner, i.e. every element whose *meaning* is its fill.
+- Mastery prints as a filled **box**, not a coloured dot, so a greyscale photocopy
+  still reads. An unchecked topic prints as an empty square you can tick with a pen.
+- Two additions beyond the spec above: an on-screen toolbar (`display:none` in
+  print) carrying the back link and the Print button, and the amber
+  **TEMPLATE MISMATCH** banner when the seeded fallback served the wrong track.
 
 ## 9. Animation policy
 
@@ -156,6 +181,14 @@ keyframes.
 ## 10. Implementation notes
 
 - Tokens live in one global stylesheet; components reference variables only.
+- **Phase 5 added the app's only class-based rules** to `globals.css`
+  (`:focus-visible`, `.skip-link`, `prefers-reduced-motion`, and the ≤860px
+  responsive block that turns the 244px sidebar into a top bar). Components still
+  style inline and still reference tokens only; the classes exist because an
+  inline `style` attribute cannot express a pseudo-class or a media query. Inline
+  styles win the cascade, so the responsive rules that must override structural
+  inline values (`width`, `flex-direction`, `overflow`) use `!important` and say
+  why at the rule.
 - The design ships as one big state-switched component; in Next.js this becomes
   real routes (see [Architecture.md §3](./Architecture.md)) — but the **token set,
   component look, and spacing must match** the pasted source.

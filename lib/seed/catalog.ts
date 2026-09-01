@@ -168,10 +168,19 @@ export type OnboardingStep = {
 // the role picked in step 1 — so a fullstack candidate was asked to choose
 // between six frontend topics. The options now follow the role.
 //
-// What this deliberately does NOT do: add roles the seeded fallback can't serve.
-// The catalog above is a frontend curriculum, so a "Backend" role would mean an
-// AI failure hands that user a frontend plan (Rule 9 breaking quietly). The role
-// list is unchanged and that constraint is recorded in memory.md.
+// PHASE 5 REVERSED THE PART OF THIS THAT SAID "NO BACKEND ROLE".
+//
+// Through Phase 4 the role list stayed frontend-only for one good reason: the
+// CATALOG above is a frontend curriculum, so a "Backend" role would mean an AI
+// failure hands that user a frontend plan — Rule 9 breaking QUIETLY, which is the
+// only way Rule 9 can actually break. The fix chosen in Phase 5 is not to pretend
+// the catalog covers backend; it is to make the fallback LOUD. "SDE-2 · Backend"
+// ships, the AI path serves it properly (and the Phase 4.5 RAG corpus already
+// carries 8 backend areas, so its topic detail is grounded, not recalled), and on
+// the rare occasions generation fails, the roadmap is permanently labelled as a
+// frontend template rather than silently passed off as a backend plan. See
+// templateMismatch() below, roadmaps.generated_from (migration 0012), and the
+// notice on the Roadmap + print screens.
 //
 // The fullstack list does name a few areas the catalog has no block for
 // (databases, APIs). That degrades gracefully rather than breaking: orderBlocks()
@@ -181,6 +190,70 @@ export type OnboardingStep = {
 
 /** Picking this means "no declared weak areas" — a balanced plan, nothing front-loaded. */
 export const NOT_SURE = "Not sure";
+
+// ---------------------------------------------------------------------------
+// Tracks — which curriculum a role needs, and which one the CATALOG actually is.
+//
+// This exists so the app can answer one question honestly: "is the plan in front
+// of you the plan you asked for?" It is the whole mechanism behind adding a
+// backend role without breaking Rule 9 quietly.
+// ---------------------------------------------------------------------------
+
+export type Track = "frontend" | "backend";
+
+/**
+ * What the seeded CATALOG above is. A constant, not a guess — the five blocks
+ * are Core JS, Browser & Rendering, React Internals, Frontend System Design, and
+ * Coding & Communication. If per-role catalogs are ever authored, this becomes a
+ * property of the chosen catalog and templateMismatch() stops being interesting.
+ */
+export const CATALOG_TRACK: Track = "frontend";
+
+const ROLE_TRACKS: Record<string, Track> = {
+  "SDE-2 · Frontend": "frontend",
+  // Fullstack stays "frontend" on purpose. The catalog genuinely serves it
+  // partially (its JS/React/system-design blocks are real fullstack interview
+  // content) and Phase 4 already accepted that its DB/API weak areas simply
+  // don't front-load anything. Calling it a mismatch would cry wolf on a plan
+  // that is mostly right, and a warning that fires on a good plan is a warning
+  // people learn to ignore.
+  "SDE-2 · Fullstack": "frontend",
+  "SDE-2 · Backend": "backend",
+  "Senior · Frontend": "frontend",
+  "Staff · Frontend": "frontend",
+};
+
+/**
+ * The track a role needs. An unrecognised role (or none) resolves to the
+ * catalog's own track — i.e. "no mismatch", the same defaulting weakAreasForRole
+ * does. Defaulting the OTHER way would slap a scary "wrong template" notice on
+ * every roadmap created before this column existed.
+ */
+export function roleTrack(role: string | null | undefined): Track {
+  return (role && ROLE_TRACKS[role]) || CATALOG_TRACK;
+}
+
+/**
+ * Should this roadmap carry the "this is the wrong template for your role"
+ * notice? True only when BOTH halves are true:
+ *
+ *   1. the seeded fallback actually ran (`generated_from === 'seed'`), and
+ *   2. the role needs a track the seeded catalog is not.
+ *
+ * `generated_from` is null for every roadmap created before migration 0012, and
+ * null is treated as "unknown provenance" → no notice. That is the honest read:
+ * we cannot show a user a definite claim about a row we never recorded. The
+ * alternative (assume 'seed' and warn) would put a false warning on every old
+ * AI-generated roadmap; assuming 'ai' would be a claim we equally can't support,
+ * but it at least doesn't ASSERT anything to the user, which is why silence wins.
+ */
+export function templateMismatch(
+  role: string | null | undefined,
+  generatedFrom: string | null | undefined
+): boolean {
+  if (generatedFrom !== "seed") return false;
+  return roleTrack(role) !== CATALOG_TRACK;
+}
 
 const WEAK_AREAS_BY_ROLE: Record<string, string[]> = {
   "SDE-2 · Frontend": [
@@ -197,6 +270,19 @@ const WEAK_AREAS_BY_ROLE: Record<string, string[]> = {
     "APIs & backend fundamentals",
     "Databases & SQL",
     "End-to-end system design",
+    "Live coding speed",
+    "Behavioral",
+  ],
+  // Backend (Phase 5). These names are chosen to line up with real `topic_area`
+  // tags in the Phase 4.5 RAG corpus (backend, databases, distributed-systems,
+  // api-design, dsa) so a backend roadmap's topic detail retrieves vetted docs
+  // instead of falling through to the ungrounded rung.
+  "SDE-2 · Backend": [
+    "APIs & backend fundamentals",
+    "Databases & SQL",
+    "Distributed systems & scale",
+    "Caching & messaging",
+    "Data structures & algorithms",
     "Live coding speed",
     "Behavioral",
   ],
@@ -248,7 +334,13 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "role",
     q: "What role are you targeting?",
-    options: ["SDE-2 · Frontend", "SDE-2 · Fullstack", "Senior · Frontend", "Staff · Frontend"],
+    options: [
+      "SDE-2 · Frontend",
+      "SDE-2 · Fullstack",
+      "SDE-2 · Backend",
+      "Senior · Frontend",
+      "Staff · Frontend",
+    ],
   },
   {
     id: "bar",

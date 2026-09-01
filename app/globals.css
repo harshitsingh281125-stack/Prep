@@ -61,3 +61,184 @@ a { color: var(--accent); text-decoration: none; }
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================================
+   Phase 5 — polish: focus visibility, reduced motion, responsive shell.
+
+   These are the only CLASS-based rules in the app. Every screen styles inline
+   (matching the design source), which is fine until you need the three things
+   an inline `style` attribute structurally cannot express: a pseudo-class
+   (:focus-visible), a media query (responsive breakpoints, reduced motion), and
+   a print rule. Rather than convert 5,000 lines of working screens to CSS
+   modules, Phase 5 adds a small set of named hooks and puts a `className`
+   alongside the existing inline styles on the handful of STRUCTURAL elements
+   that need to respond. Inline styles win the cascade on conflict, so each rule
+   below is careful to set properties the inline styles don't already set — or,
+   where it must override (the shell's fixed width), it says so with !important
+   and explains why right there.
+   ============================================================================ */
+
+/* --- Focus visibility (accessibility) --------------------------------------
+   The app is heavily keyboard-navigable — the recall queue, the onboarding
+   wizard, and the week accordions are all button grids. Browsers give focus a
+   default ring, but several of these controls set their own `border` and
+   `background` inline, which on the dark theme leaves the default ring nearly
+   invisible against --bg-elevated. One explicit, token-driven ring fixes every
+   control at once.
+
+   :focus-visible rather than :focus, deliberately: :focus would paint a ring on
+   every mouse click of every button, which is the reason people disable focus
+   rings and end up with a keyboard-unusable app. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Skip link -------------------------------------------------------------
+   The sidebar is ~7 tab stops before the content on every single screen. A skip
+   link is the standard fix; it is visually hidden until focused, at which point
+   it must be genuinely visible (not a 1px sliver), so it takes real geometry on
+   focus rather than only a clip change. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: 0 0 8px 0;
+  background: var(--accent);
+  color: oklch(0.99 0 0);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* --- Reduced motion --------------------------------------------------------
+   design.md §9 requires it, and it is one rule because Prep's motion budget is
+   tiny by policy (CSS transitions + a couple of surgical springs). Anyone who
+   has asked their OS to stop animating things gets the end state instantly. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Responsive shell ------------------------------------------------------
+   Settled in Phase 5: under the breakpoint the fixed 244px sidebar becomes a
+   horizontal top bar, and the multi-column grids collapse. CSS only — no
+   drawer, no toggle state, no focus trap. A dashboard's nav is four links; an
+   off-canvas drawer would add a JS state machine and an a11y surface (focus
+   trapping, escape handling, aria-expanded, scroll locking) to hide four links
+   that fit on one row.
+
+   860px is where the 244px sidebar + a 1000px content column stop coexisting
+   without the content becoming unreadably narrow. */
+@media (max-width: 860px) {
+  /* The shell stops being a horizontal split and becomes a vertical stack.
+     `height: 100vh; overflow: hidden` is also dropped: on a phone the app must
+     scroll as ONE document, or the inner scroll area fights the browser's own
+     URL-bar collapse and you get two nested scrollbars. */
+  .app-shell {
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 100vh;
+    overflow: visible !important;
+  }
+
+  .app-sidebar {
+    width: 100% !important;
+    flex: 0 0 auto !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px !important;
+  }
+
+  /* The logo block and the user card shrink to their essentials; the nav takes
+     the room it needs. Order is set explicitly so the wrap lands sensibly:
+     brand, then the user card on the same row, then nav on its own row. */
+  .app-brand {
+    padding: 0 !important;
+    flex: 1 1 auto;
+  }
+
+  .app-nav {
+    order: 3;
+    flex: 1 0 100%;
+    flex-direction: row !important;
+    overflow-x: auto;
+    gap: 6px !important;
+  }
+
+  .app-nav a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .app-new-roadmap {
+    order: 2;
+    width: auto !important;
+    margin-top: 0 !important;
+    flex: 0 0 auto;
+  }
+
+  /* The vertical spacer and the theme toggle would each claim a full row in a
+     wrapped flex row; the spacer has no job once the sidebar is horizontal. */
+  .app-spacer {
+    display: none !important;
+  }
+
+  .app-user {
+    order: 2;
+    flex: 0 0 auto;
+    border-top: none !important;
+    padding: 0 !important;
+  }
+
+  .app-theme {
+    order: 2;
+    flex: 0 0 auto;
+    width: auto !important;
+  }
+
+  /* The content area no longer owns a scroll context of its own. */
+  .app-content {
+    overflow-y: visible !important;
+    padding: 18px 16px !important;
+  }
+
+  /* Four-up stat grids and the paired chart row are unreadable at phone width. */
+  .grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Below ~520px even two stat tiles across is too tight for a 24px value plus a
+   sub-line, so they go single-file. */
+@media (max-width: 520px) {
+  .grid-4 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Wide content that can't reflow (the hand-rolled SVG charts, long mono strings)
+   scrolls inside its own box rather than pushing the page sideways. */
+.scroll-x {
+  overflow-x: auto;
+}

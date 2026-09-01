@@ -1,0 +1,444 @@
+/* ============================================================================
+   Prep — print/export stylesheet (Phase 5)
+   Reference: design.md §8. The design source it names (`Prep-print.dc.html`) is
+   NOT in this repo — only `Prep - Interview Prep OS.html`, which contains no
+   print markup — so this is built from §8's written spec: light-only, hex
+   tokens, IBM Plex, 0.7in margins, break-inside:avoid on week cards + the stat
+   grid, and the header → banner → tiles → weeks → recall/blockers order.
+
+   TWO DELIBERATE DEPARTURES FROM HOUSE STYLE, both forced by the medium:
+
+   1. RAW HEX, not OKLCH tokens. Rule 21 names the print view as its single
+      exception and this is why: print colour management is not the browser's
+      screen pipeline, `print-color-adjust` support is uneven, and a paper
+      document has exactly one theme. A page that inherited --bg would print the
+      dark theme as a black rectangle, or (with backgrounds stripped) as white
+      text on white paper.
+
+   2. A STYLESHEET, not inline styles. Every other screen in Prep styles inline;
+      this one cannot, because the whole point is @page and @media print — an
+      inline style attribute can express neither. The rules that matter most
+      here (page margins, break-inside) have no inline form at all.
+   ============================================================================ */
+
+/* 0.7in margins per design.md §8. The running header/footer are left to the
+   browser's own print dialog rather than faked with position:fixed — a fixed
+   element in print either repeats on every page or clips, depending on engine,
+   and neither is what a reader expects. */
+@page {
+  margin: 0.7in;
+}
+
+.print-root {
+  /* --- hex tokens (light-only) — the Rule 21 exception ------------------- */
+  --pk-bg: #ffffff;
+  --pk-sunken: #f7f7f9;
+  --pk-border: #e3e4e9;
+  --pk-border-strong: #c9cbd4;
+  --pk-text: #1c1e26;
+  --pk-muted: #5a5d6b;
+  --pk-faint: #8b8e9c;
+  --pk-accent: #4a54c4;
+  --pk-green: #2f7d4f;
+  --pk-amber: #96690f;
+  --pk-red: #b3341f;
+
+  background: var(--pk-bg);
+  color: var(--pk-text);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* On SCREEN the print route is a preview: centre it on a neutral field at
+   roughly the printable width so what you see is what you get. In print the
+   page IS the sheet, so the frame is dropped entirely (see @media print). */
+.print-sheet {
+  max-width: 7.1in; /* 8.5in stock minus 2 × 0.7in margins */
+  margin: 24px auto 64px;
+  padding: 28px 30px 34px;
+  background: var(--pk-bg);
+  border: 1px solid var(--pk-border);
+  border-radius: 6px;
+}
+
+.print-mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* --- header ---------------------------------------------------------------- */
+.print-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--pk-text);
+  margin-bottom: 18px;
+}
+
+.print-logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.print-logo-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--pk-accent);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.print-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 10px 0 3px;
+}
+
+.print-track {
+  font-size: 11.5px;
+  color: var(--pk-muted);
+  letter-spacing: 0.01em;
+}
+
+.print-meta {
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--pk-faint);
+  line-height: 1.6;
+  flex: 0 0 auto;
+}
+
+/* --- banners --------------------------------------------------------------- */
+.print-banner {
+  border: 1px solid var(--pk-red);
+  border-left-width: 4px;
+  border-radius: 5px;
+  padding: 11px 13px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.55;
+  break-inside: avoid;
+}
+
+.print-banner-amber {
+  border-color: var(--pk-amber);
+}
+
+.print-eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.print-eyebrow-red {
+  color: var(--pk-red);
+}
+
+.print-eyebrow-amber {
+  color: var(--pk-amber);
+}
+
+/* --- stat tiles ------------------------------------------------------------ */
+/* design.md §8: `break-inside: avoid` on the stat grid (the design's `.kx`) so
+   the four headline numbers are never split across a page boundary. */
+.print-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+  break-inside: avoid;
+}
+
+.print-stat {
+  border: 1px solid var(--pk-border);
+  border-radius: 6px;
+  padding: 10px 11px;
+  background: var(--pk-sunken);
+}
+
+.print-stat-label {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--pk-faint);
+}
+
+.print-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: 2px;
+}
+
+.print-stat-sub {
+  font-size: 10.5px;
+  color: var(--pk-muted);
+  margin-top: 1px;
+}
+
+.print-red {
+  color: var(--pk-red);
+}
+.print-green {
+  color: var(--pk-green);
+}
+
+/* --- section headings ------------------------------------------------------ */
+.print-section {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pk-faint);
+  border-bottom: 1px solid var(--pk-border);
+  padding-bottom: 5px;
+  margin: 0 0 12px;
+}
+
+/* --- week cards ------------------------------------------------------------ */
+/* design.md §8 again: a week card is the unit a reader scans, so splitting one
+   across a page break is the single worst thing this layout can do. */
+.print-week {
+  border: 1px solid var(--pk-border);
+  border-radius: 7px;
+  padding: 12px 14px;
+  margin-bottom: 11px;
+  break-inside: avoid;
+}
+
+.print-week-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+
+.print-week-n {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pk-accent);
+  border: 1px solid var(--pk-accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex: 0 0 auto;
+}
+
+.print-week-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: 1;
+}
+
+.print-week-meta {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--pk-muted);
+  flex: 0 0 auto;
+}
+
+.print-topics {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.print-topic {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dotted var(--pk-border);
+  font-size: 11.5px;
+}
+
+.print-topic:last-child {
+  border-bottom: none;
+}
+
+/* A printed checkbox, not a coloured dot: on paper an empty square is an
+   affordance (you can tick it with a pen) where a coloured dot is only a legend
+   lookup. Mastery still prints as a filled box so a photocopy stays readable
+   with no colour at all. */
+.print-box {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--pk-border-strong);
+  border-radius: 2px;
+  flex: 0 0 auto;
+  position: relative;
+  top: 1px;
+}
+
+.print-box-done {
+  background: var(--pk-green);
+  border-color: var(--pk-green);
+}
+
+.print-box-wip {
+  border-color: var(--pk-amber);
+  border-width: 2px;
+}
+
+.print-topic-name {
+  flex: 1;
+}
+
+.print-topic-status {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--pk-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.print-kill {
+  background: var(--pk-sunken);
+  border: 1px solid var(--pk-border);
+  border-left: 3px solid var(--pk-red);
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* --- footer: recall schedule + blockers ------------------------------------ */
+.print-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+  break-inside: avoid;
+}
+
+.print-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.print-list li {
+  padding: 5px 0;
+  border-bottom: 1px dotted var(--pk-border);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.print-list li:last-child {
+  border-bottom: none;
+}
+
+.print-bucket-count {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 600;
+}
+
+.print-sign {
+  margin-top: 22px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pk-border);
+  font-size: 10px;
+  color: var(--pk-faint);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* --- the on-screen toolbar (never printed) --------------------------------- */
+.print-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--pk-sunken);
+  border-bottom: 1px solid var(--pk-border);
+  font-size: 12.5px;
+}
+
+.print-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.print-btn {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: 7px;
+  border: 1px solid var(--pk-accent);
+  background: var(--pk-accent);
+  color: #ffffff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.print-back {
+  color: var(--pk-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.print-btn-secondary {
+  background: var(--pk-bg);
+  color: var(--pk-accent);
+}
+
+/* Focus must survive on a light-only surface where the app's token-driven
+   :focus-visible rule doesn't reach. */
+.print-btn:focus-visible,
+.print-back:focus-visible {
+  outline: 2px solid var(--pk-accent);
+  outline-offset: 2px;
+}
+
+/* --- print-time overrides --------------------------------------------------- */
+@media print {
+  /* Force the ink. Browsers strip backgrounds by default to save toner, which
+     would silently erase the kill-criterion strip, the mastery boxes, and the
+     banner — i.e. every element whose MEANING is carried by its fill. */
+  .print-root {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-bar {
+    display: none;
+  }
+
+  .print-sheet {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}

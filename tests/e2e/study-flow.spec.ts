@@ -31,11 +31,18 @@ test.describe("study flow: mastery + persistence", () => {
     // The mastery label starts un-mastered.
     await expect(page.getByText("Check only when you can do it cold, no notes.")).toBeVisible();
 
-    // The kill-criterion checkbox is the button carrying aria-pressed (see
-    // TopicStudy.tsx). Check it → mastery. Wait for the actual DB write (PATCH to
-    // topics) to complete before reloading, so TP-05 tests real persistence rather
-    // than racing the optimistic UI.
-    const killCheckbox = page.locator("button[aria-pressed]").first();
+    // The kill-criterion checkbox, by test id. It used to be located as "the first
+    // button[aria-pressed]", which held only while it was the ONLY such button on
+    // the page — Phase 5 gave the sidebar's theme toggle a correct `aria-pressed`
+    // and this selector silently began matching THAT (the sidebar renders first,
+    // and in the dark theme its aria-pressed is also "false", so even the guard
+    // assertion below passed). The test then clicked the theme toggle and timed out
+    // waiting for a topics PATCH. Structural selectors that assume uniqueness rot.
+    //
+    // Check it → mastery. Wait for the actual DB write (PATCH to topics) to
+    // complete before reloading, so TP-05 tests real persistence rather than
+    // racing the optimistic UI.
+    const killCheckbox = page.getByTestId("kill-criterion");
     await expect(killCheckbox).toHaveAttribute("aria-pressed", "false");
     const masteryWrite = page.waitForResponse(
       (r) => r.url().includes("/rest/v1/topics") && r.request().method() === "PATCH"

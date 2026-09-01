@@ -578,8 +578,19 @@ export default function TopicStudy({
           >
             <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
               <button
+                type="button"
                 onClick={toggleMastery}
                 aria-pressed={mastered}
+                // Phase 5: named explicitly. It used to be findable as "the only
+                // button[aria-pressed] on the page" — until the sidebar's theme
+                // toggle correctly became an aria-pressed toggle button too, at
+                // which point `.first()` in study-flow.spec.ts silently started
+                // clicking the theme toggle and the mastery test timed out waiting
+                // for a topics PATCH that was never going to happen. A structural
+                // selector that depends on being unique in the whole document is a
+                // trap; a name is not.
+                data-testid="kill-criterion"
+                aria-label="Mark this topic mastered"
                 style={{
                   width: "28px",
                   height: "28px",
