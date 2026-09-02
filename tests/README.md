@@ -15,10 +15,11 @@ Manual matrices, one per phase:
 [phase-4.5-rag.md](./phase-4.5-rag.md) · [phase-5-print-polish.md](./phase-5-print-polish.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **243** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
+**Current counts:** Vitest **248** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
 + 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag
-+ 16 print-schedule + 17 catalog-track) · Playwright **72** (10 Phase 1 + 8 recall
-+ 13 sessions + 20 AI + 13 RAG + 8 print/role), all green as of 2026-08-27.
++ 16 print-schedule + 17 catalog-track + 5 detail-source) · Playwright **73** (10
+Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 8 print/role + 1 content
+marker), all green as of 2026-09-02.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 
@@ -132,7 +133,19 @@ All produced failures that *looked* like app bugs and weren't — see memory.md.
    status code, correct empty page" from "user B is reading user A's roadmap" — a
    cosmetic bug and a catastrophe. It now checks the content first, because the
    important assertion must not sit behind the one that aborts early.
-10. **Never identify an element by a property that is only *incidentally* unique.**
+10. **This suite is occasionally flaky against the shared DB, and the flakiness
+   imitates a real bug.** On 2026-09-02 a full run went 4 red (`RAG-02`, two recall
+   cases, and the Progress accuracy empty-state), then the same specs passed in
+   isolation on both the changed and unchanged tree, and the next full run was
+   73/73. The signature to recognise: an empty recall queue where cards were
+   generated, and `/progress` reporting an accuracy percentage where the test
+   expects `—` (i.e. `recall_reviews` rows exist that the run did not create).
+   **Do not conclude a code change caused a red run from one run each way** — that
+   is exactly the wrong call this note exists to prevent. Re-run the spec in
+   isolation, both with and without the change, before believing a bisect. Root
+   cause is still unidentified; leftover rows on the shared project are the
+   leading suspect, and it is why `seedQueue()` asserts loudly on a 403.
+11. **Never identify an element by a property that is only *incidentally* unique.**
    `study-flow.spec.ts` located the kill-criterion checkbox as the first
    `button[aria-pressed]`. Phase 5 gave the sidebar's theme toggle a (correct)
    `aria-pressed`; the sidebar renders first, so the selector silently began

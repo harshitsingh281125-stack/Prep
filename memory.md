@@ -552,6 +552,28 @@
   un-collapse it. An indistinguishable 404 is a security property here, not tidy
   copy.
 
+- **2026-09-02 · The Roadmap screen's content markers read `detail->>source`, not
+  `detail`.** (Phase 5 follow-up.) Each topic row shows whether its study material
+  exists and how grounded it is (VETTED / AI / TEMPLATE / NO CONTENT), plus an
+  `n/total studied` count per week, so "what have I actually generated?" is
+  answerable without opening every topic.
+  **The non-obvious part is the query.** `topics.detail` is a jsonb blob holding a
+  mental model, 2–5 resources and 2 exercises; selecting it for 25 topics to
+  answer a one-word question would ship tens of KB per roadmap render. PostgREST
+  can extract a single key server-side — `detailSource:detail->>source` — so the
+  wire carries one short string per topic. Verified the syntax against the live
+  API before trusting it, with a deliberately malformed select as a control to
+  prove a 400 would have been visible.
+  **Why `source` is a safe proxy for "has content":** all three write paths stamp
+  it (`validate.ts` → 'rag' and 'ai', `seed/detail.ts` → 'seed'), so a null means
+  "no detail yet" rather than "detail without a source". The column is not
+  constrained to those values, though, so the UI narrows the string and treats
+  anything unexpected as NO CONTENT — an unknown provenance is not a claim we can
+  make about content. Same rule as `generated_from`'s NULL handling.
+  **The ungenerated state is drawn, not omitted** (dashed, faint). An absent chip
+  is invisible when you are scanning 25 rows for the topics that still need work,
+  which is the entire question the marker exists to answer.
+
 ## Open questions (decide deliberately)
 
 - ~~**[Phase 4] v1 model/provider per tier**~~ — **SETTLED 2026-07-28, CONFIRMED

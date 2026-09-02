@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { topicStatusMeta } from "@/lib/roadmap/status";
+import { detailSourceMeta, topicStatusMeta, type DetailSource } from "@/lib/roadmap/status";
 import type { TopicStatus } from "@/lib/seed/types";
 
 export type WeekData = {
@@ -13,7 +13,9 @@ export type WeekData = {
   killCriterion: string;
   mastered: number;
   total: number;
-  topics: { id: string; name: string; status: TopicStatus }[];
+  /** Topics with content generated — the numerator of the header's content chip. */
+  withDetail: number;
+  topics: { id: string; name: string; status: TopicStatus; detailSource: DetailSource }[];
 };
 
 const MONO = "'IBM Plex Mono',monospace";
@@ -35,6 +37,7 @@ export default function WeekAccordion({
 
   const progLabel = `${week.mastered}/${week.total} mastered`;
   const allMastered = week.total > 0 && week.mastered === week.total;
+  const allGenerated = week.total > 0 && week.withDetail === week.total;
 
   return (
     <div
@@ -76,6 +79,21 @@ export default function WeekAccordion({
         >
           {progLabel}
         </span>
+        {/* Content coverage (Phase 5). Weeks are collapsed by default, so without
+            this you'd have to expand every accordion to learn which topics still
+            have no study material — which is the thing the per-row chips below
+            were added to save you. */}
+        <span
+          data-testid="week-content-count"
+          title={`${week.withDetail} of ${week.total} topics in this week have study material generated.`}
+          style={{
+            fontFamily: MONO,
+            fontSize: "11.5px",
+            color: allGenerated ? "var(--accent)" : "var(--text-faint)",
+          }}
+        >
+          {week.withDetail}/{week.total} studied
+        </span>
         <span
           style={{
             fontFamily: MONO,
@@ -114,6 +132,7 @@ export default function WeekAccordion({
                 name={t.name}
                 statusLabel={m.label}
                 statusColor={m.color}
+                detailSource={t.detailSource}
                 onOpen={() => router.push(`/roadmap/${roadmapId}/topic/${t.id}`)}
               />
             );
@@ -165,14 +184,17 @@ function TopicRow({
   name,
   statusLabel,
   statusColor,
+  detailSource,
   onOpen,
 }: {
   name: string;
   statusLabel: string;
   statusColor: string;
+  detailSource: DetailSource;
   onOpen: () => void;
 }) {
   const [hover, setHover] = useState(false);
+  const d = detailSourceMeta(detailSource);
   return (
     <div
       onClick={onOpen}
@@ -190,6 +212,32 @@ function TopicRow({
     >
       <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: statusColor, flex: "0 0 8px" }} />
       <div style={{ flex: 1, fontSize: "13.5px" }}>{name}</div>
+      {/* Content marker (Phase 5): does study material exist for this topic, and
+          how grounded is it? Rendered as a bordered CHIP while the progress label
+          beside it stays plain text — two mono labels in one row would otherwise
+          read as one metric, and these answer different questions ("is the content
+          there" vs "have you mastered it"). The not-generated state is drawn
+          dashed and faint rather than omitted: a missing chip is invisible when
+          you are scanning 25 rows for the topics you still have to generate. */}
+      <div
+        data-testid="topic-content-chip"
+        data-source={detailSource ?? "none"}
+        title={d.hint}
+        style={{
+          fontFamily: MONO,
+          fontSize: "10.5px",
+          letterSpacing: "0.04em",
+          color: d.color,
+          background: d.soft,
+          border: (detailSource ? "1px solid " : "1px dashed ") + d.color,
+          borderRadius: "5px",
+          padding: "2px 7px",
+          flex: "0 0 auto",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {d.label}
+      </div>
       <div style={{ fontSize: "12px", color: statusColor, fontFamily: MONO }}>{statusLabel}</div>
       <div style={{ color: "var(--text-faint)", fontFamily: MONO, fontSize: "12px" }}>study →</div>
     </div>

@@ -214,12 +214,12 @@ PASS having measured nothing.
 
 ## Phase 5 — Print/export + polish  🟡 BUILT — awaiting the manual QA gate
 **Goal:** shippable v1.
-**Status (2026-08-27):** code-complete; **Vitest 243/243, Playwright 72/72, build +
+**Status (2026-09-02):** code-complete; **Vitest 248/248, Playwright 73/73, build +
 tsc + lint clean**. Migration `0012_roadmap_provenance.sql` written **and applied**
 (column verified present via PostgREST). Branch `phase-4.5-rag`.
 **The Rule 27 gate is NOT yet closed** — [tests/phase-5-print-polish.md](./tests/phase-5-print-polish.md)
-holds **59 manual cases across 6 suites** (PRINT 16, ROLE 10, RESP 9, A11Y 12,
-STATE 8, UI 4) and has not been run. This phase is not ✅ DONE until it is, and the
+holds **69 manual cases across 7 suites** (PRINT 16, ROLE 10, MARK 10, RESP 9,
+A11Y 12, STATE 8, UI 4) and has not been run. This phase is not ✅ DONE until it is, and the
 status line will record which cases actually ran versus were skipped — 4.5's line had
 to be walked back for exactly that reason.
 - **Roadmap print/export — `/roadmap/[id]/print`.** A server component in a *sibling*
@@ -243,6 +243,15 @@ to be walked back for exactly that reason.
   not the same as never telling the user. Requires `roadmaps.generated_from`
   (migration 0012), which **reverses** Phase 4's "report the source, don't store it".
   NULL = unknown provenance and is never read as `'ai'`.
+- **Content-coverage markers on the Roadmap screen.** Each topic row carries a chip
+  saying whether its study material exists and how grounded it is
+  (`VETTED` / `AI` / `TEMPLATE` / `NO CONTENT`), and each week header shows an
+  `n/total studied` count — so "what have I actually generated?" is answerable
+  without opening every topic. Fed by `detailSource:detail->>source`, which pulls
+  ONE string out of the topic's detail jsonb rather than shipping the whole blob
+  for 25 topics. The ungenerated state is drawn (dashed, faint) rather than
+  omitted, because an absent chip is invisible when you are scanning for the rows
+  that still need work.
 - **Empty/error/loading states:** `error.tsx` + `global-error.tsx` (the only boundary
   above the root layout, which is where `(app)/layout.tsx`'s `getUser()` would throw),
   `not-found.tsx` (says "not found", never "forbidden" — distinguishing them is an

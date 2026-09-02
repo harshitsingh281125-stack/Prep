@@ -29,16 +29,31 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
   const [{ data: weeks }, { data: sessionRows }] = await Promise.all([
     supabase
       .from("weeks")
-      .select("id, n, title, hours, kill_criterion, topics(id, name, status, position)")
+      // `detailSource:detail->>source` extracts ONE string out of the topic's
+      // detail jsonb instead of shipping the whole blob. That matters: detail
+      // holds a mental model, 2-5 resources and 2 exercises per topic, so a
+      // 25-topic roadmap would pull tens of KB across the wire to answer a
+      // question that needs one word. Every write path stamps `source`
+      // (validate.ts -> 'rag' | 'ai', seed/detail.ts -> 'seed'), so a null here
+      // means "no detail row yet", not "detail without a source".
+      .select(
+        "id, n, title, hours, kill_criterion, topics(id, name, status, position, detailSource:detail->>source)"
+      )
       .eq("roadmap_id", id)
       .order("n", { ascending: true }),
     supabase.from("study_sessions").select("minutes, topic_id, logged_at").eq("roadmap_id", id),
   ]);
 
+  type RawTopic = {
+    id: string;
+    name: string;
+    status: string;
+    position: number;
+    detailSource: string | null;
+  };
+
   const weekData: WeekData[] = (weeks ?? []).map((w) => {
-    const topics = ((w.topics ?? []) as { id: string; name: string; status: string; position: number }[])
-      .slice()
-      .sort((a, b) => a.position - b.position);
+    const topics = ((w.topics ?? []) as RawTopic[]).slice().sort((a, b) => a.position - b.position);
     const mastered = topics.filter((t) => t.status === "mastered").length;
     return {
       id: w.id,
@@ -48,10 +63,18 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
       killCriterion: w.kill_criterion,
       mastered,
       total: topics.length,
+      withDetail: topics.filter((t) => t.detailSource !== null).length,
       topics: topics.map((t) => ({
         id: t.id,
         name: t.name,
         status: (t.status as TopicStatus) ?? "not_started",
+        // Narrow the string PostgREST returns to the union the UI switches on.
+        // Anything unexpected reads as "not generated" rather than being rendered
+        // raw — an unknown provenance is not a claim we can make about content.
+        detailSource:
+          t.detailSource === "rag" || t.detailSource === "ai" || t.detailSource === "seed"
+            ? t.detailSource
+            : null,
       })),
     };
   });

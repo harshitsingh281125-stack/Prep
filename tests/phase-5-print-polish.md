@@ -12,7 +12,7 @@ suite ROLE below reuses).
 
 ## What automation already covers — and what it deliberately cannot
 
-**Automated and green as of 2026-08-27:** Vitest **243/243**, Playwright **72/72**.
+**Automated and green as of 2026-09-02:** Vitest **248/248**, Playwright **73/73**.
 
 - Vitest: the print recall-schedule bucketing including every UTC day boundary
   (`tests/unit/print-schedule.test.ts`), and the whole role/track/mismatch
@@ -21,9 +21,12 @@ suite ROLE below reuses).
 - Playwright: the print route's security surface end to end — owner 200,
   cross-user 404, anonymous redirect, unknown id 404 — that it renders outside
   the app shell, that the Export link round-trips, and that a backend answer set
-  generates and persists its provenance (`tests/e2e/print.spec.ts`).
+  generates and persists its provenance (`tests/e2e/print.spec.ts`); plus the
+  content marker's full round-trip (`CONTENT-01` in `study-flow.spec.ts`) —
+  every topic reads NO CONTENT on a fresh roadmap, and after generating one
+  topic's detail exactly one chip flips to the source the API says it saved.
 
-**Four things automation cannot tell you, which is what this matrix is for:**
+**Five things automation cannot tell you, which is what this matrix is for:**
 
 1. **What the page actually looks like on paper.** Playwright asserts that
    `.print-week` elements exist; it says nothing about whether a week card splits
@@ -38,6 +41,9 @@ suite ROLE below reuses).
    not the same claim.
 4. **Theme fidelity and feel** — the loading skeleton's timing, both themes on
    every new surface. Suite **UI**.
+5. **Whether the content markers actually read at a glance.** `CONTENT-01`
+   proves the right chip renders for the right row; only a person can say whether
+   a wall of them is scannable or noise. Suite **MARK**.
 
 ---
 
@@ -96,6 +102,29 @@ suite ROLE below reuses).
 | ROLE-08 | Old roadmaps stay silent | S1 | Open a roadmap created before Phase 5 (`generated_from` is NULL) | **No** notice. Unknown provenance must not produce a claim in either direction | P1 |
 | ROLE-09 | Backend detail is grounded | S2, ROLE-06's roadmap | Open a backend topic → **Generate with AI** | Resources are real links with green **VERIFIED** chips — the Phase 4.5 corpus carries backend/databases/distributed-systems areas | P1 |
 | ROLE-10 | Backend recall cards | S2, ROLE-06's roadmap | On a backend topic, generate recall cards | Questions are about that backend topic, not frontend | P2 |
+
+---
+
+## Suite MARK — "what have I actually generated?" markers (P1)
+
+> Added 2026-09-02. The chips answer, from the Roadmap screen alone, which topics
+> already have study material and how trustworthy it is. `CONTENT-01` in
+> `study-flow.spec.ts` (the automated case — different ID space on purpose)
+> covers the data round-trip; these cover what it looks like
+> and whether it reads correctly at a glance.
+
+| ID | Area | Precondition | Steps | Expected | Pri |
+|----|------|--------------|-------|----------|-----|
+| MARK-01 | Fresh roadmap | New roadmap, nothing generated | Open it, expand every week | Every topic row shows a dashed, faint **NO CONTENT** chip; every week header reads `0/N studied` | P1 |
+| MARK-02 | Grounded topic | S2 (real provider), corpus-covered topic | Generate detail on it, return to the roadmap | That row's chip is a green **VETTED**; the week count increments by one | P0 |
+| MARK-03 | Ungrounded topic | Niche topic with no corpus hit | Generate detail, return to the roadmap | Amber **AI** chip — it must not claim VETTED for model-recalled resources | P0 |
+| MARK-04 | Template fallback | `AI_MOCK_MODE=error`, restart | Generate detail on a fresh topic, return | Muted **TEMPLATE** chip | P1 |
+| MARK-05 | Chip matches the topic screen | After MARK-02/03 | Open that topic and read its own source line | The chip's grading and the Topic screen's provenance line agree. A disagreement is a P0 — they read the same field | P0 |
+| MARK-06 | Scannable at a glance | Roadmap with a mix of generated and not | Expand a week and look for two seconds | You can tell which rows still need generating without reading each label. If the dashed chip is too quiet or too loud, say so — this is a judgement call and the reason it's a manual case | P1 |
+| MARK-07 | Doesn't crowd the row | Long topic name, narrow window | Look at a topic row at ~900px | Chip, status label and "study →" don't collide or wrap. Below 860px it stays legible | P2 |
+| MARK-08 | Both themes | S3 | View the four chip states in light and dark | All four readable; NO CONTENT stays clearly secondary to the three real states | P2 |
+| MARK-09 | Tooltip explains | S3 | Hover a chip and a week count | A sentence explaining what the state means / how many topics have material | P2 |
+| MARK-10 | Week count agrees with rows | Mixed roadmap | Count generated rows in a week, compare with its header | Identical. The header is a summary of the rows, not a second source of truth | P1 |
 
 ---
 
@@ -177,8 +206,8 @@ A11Y-10 FAIL — --text-faint on --bg-sunken is 3.1:1 in light theme
 ```
 
 **Say explicitly which cases you skipped.** Several here need awkward setup —
-an `.env.local` edit plus a restart (ROLE-03/04/05/07, STATE-03/04), a second
-account (STATE-06), a screen reader (A11Y-04/05/06), a real phone (RESP-*), a
+an `.env.local` edit plus a restart (ROLE-03/04/05/07, MARK-04, STATE-03/04), a
+second account (STATE-06), a screen reader (A11Y-04/05/06), a real phone (RESP-*), a
 roadmap that is genuinely behind pace (PRINT-09). **A skipped case reported as a
 pass becomes a false claim in `phases.md` that gets read back months later as
 fact**, so "skipped" is a perfectly good answer, and "eyeballed it" is worth

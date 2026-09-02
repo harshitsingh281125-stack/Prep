@@ -741,6 +741,7 @@ learn to ignore.
 | `app/(app)/error.tsx` | Segment error boundary (client, takes `reset`). Shows the `digest` so a reported failure is traceable to a server log line. |
 | `app/global-error.tsx` | The only boundary above the root layout — catches a throw in `(app)/layout.tsx`, which does `getUser()` on every request. Renders its own `<html>`. |
 | `app/not-found.tsx` | The 404. Says "not found", never "forbidden": distinguishing them would confirm a stranger's guess that a roadmap id is real. |
+| Roadmap content markers | Each topic row reports whether its detail exists and how grounded it is; each week header shows `n/total studied`. Fed by `detailSource:detail->>source` so the query extracts one string instead of the whole detail jsonb for every topic. Unknown values degrade to "no content". |
 | `globals.css` (Phase 5 block) | The app's only class-based rules — `:focus-visible`, skip link, `prefers-reduced-motion`, and the ≤860px breakpoint that turns the 244px sidebar into a top bar. Inline styles can express none of these three things. |
 
 ## 6. Auth & security
