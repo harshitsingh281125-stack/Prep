@@ -64,15 +64,18 @@ Full context lives in these docs — **read them before non-trivial work**:
 
 
 - **Ship phase by phase** (phases.md). Each phase ends demoable; no half-built
-  horizontal slices. **Phases 0, 1, 2, 3, 4 and 4.5 are DONE** (Phase 1 QA-gate closed
+  horizontal slices. **Phases 0, 1, 2, 3, 4, 4.5 and 5 are DONE** (Phase 1 QA-gate closed
   2026-07-31; Phase 2 closed 2026-08-08 — Vitest 24/24, E2E 18/18, full manual pass;
   Phase 3 closed 2026-08-08 — Vitest 77/77, E2E 31/31, full manual pass incl. the
   Table-Editor elapsed-time cases; Phase 4 closed 2026-08-12 — Vitest 165/165,
   E2E 51/51, full manual pass all 76 cases incl. the cap/fallback env-injection
   suites; Phase 4.5 closed 2026-08-14 — Vitest 210/210, E2E 64/64, RAG corpus 202
   docs / 26 areas, manual matrix reported run by the owner with no failures, though
-  **no per-case ledger was kept** for that one); **next up is Phase 5 (print/export
-  + polish)**.
+  **no per-case ledger was kept** for that one; Phase 5 closed 2026-09-02 — Vitest
+  248/248, E2E 81/81, manual matrix run by the owner **with a per-case ledger of
+  what was and wasn't exercised recorded in phases.md**, and three of the skipped
+  groups converted into automation rather than written off); **v1 is feature-complete
+  — Phase 6 is the v2 backlog and is explicitly not started.**
 - **AI is live.** All generation goes through `lib/ai/gateway.ts`; `lib/ai/config.ts`
   is the only file naming a model (`gemini-3.5-flash` / `gemini-3.5-flash-lite`).
   Daily cap 25/user (`AI_DAILY_CALL_CAP` overrides). **`AI_PROVIDER=mock` gives a

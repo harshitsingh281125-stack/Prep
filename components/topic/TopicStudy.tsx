@@ -247,7 +247,7 @@ export default function TopicStudy({
         ← Roadmap
       </button>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
+      <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
         {/* Left column: model + resources + exercises */}
         <div>
           <div style={{ marginBottom: "20px" }}>

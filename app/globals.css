@@ -227,6 +227,20 @@ a { color: var(--accent); text-decoration: none; }
   .grid-2 {
     grid-template-columns: 1fr !important;
   }
+
+  .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* The two-pane screens (Topic, Onboarding) are `1fr 300px` — a content column
+     beside a fixed-width rail. The rail's 300px does not shrink, so below the
+     breakpoint it is what pushes the page sideways; stacking is the only fix
+     that keeps both panes usable. The rail goes UNDER the content deliberately:
+     on Topic it holds resources and exercises, which are secondary to the
+     mental model and the notes you came to write. */
+  .grid-side {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 /* Below ~520px even two stat tiles across is too tight for a 24px value plus a

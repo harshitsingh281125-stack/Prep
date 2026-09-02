@@ -1,4 +1,4 @@
-import { test, expect, chromium } from "@playwright/test";
+import { test, expect, chromium, request } from "@playwright/test";
 import { assertMockProvider, generateRoadmap, deleteRoadmap, VALID_ANSWERS } from "./helpers";
 
 // Suite: the print/export view (Phase 5) — /roadmap/[id]/print.
@@ -131,11 +131,60 @@ test.describe("print / export view", () => {
   });
 });
 
-// The Phase 5 role-scope change. The mismatch NOTICE itself needs the seeded
-// fallback to have run, which needs AI_MOCK_MODE=error and a server restart —
-// that is manual suite ROLE in tests/phase-5-print-polish.md, the same treatment
-// the Phase 4 FALL cases get. What is automatable, and worth automating, is that
-// the new role generates at all and that the provenance write succeeds.
+/**
+ * Force a roadmap's stored provenance, so the TEMPLATE MISMATCH rendering can be
+ * asserted without an AI_MOCK_MODE=error server restart.
+ *
+ * WHAT THIS DOES AND DOESN'T PROVE, because the distinction is the whole reason
+ * the manual ROLE cases still exist:
+ *   - it DOES prove that, given `generated_from = 'seed'` and a backend role, the
+ *     notice renders on the Roadmap screen and on the print-out, and that a
+ *     frontend role in the same state correctly renders nothing;
+ *   - it does NOT prove that a FAILED GENERATION writes 'seed' in the first
+ *     place. That is the env-injection path (manual ROLE-03).
+ *
+ * Uses the service role deliberately: it is fixture setup that has to bypass the
+ * app, and doing it through the app would mean adding a "set my provenance" route
+ * that exists only for a test. Asserts its precondition loudly rather than
+ * skipping — a security-adjacent case that silently skips is a hole with a green
+ * tick on it (tests/README gotcha 5).
+ */
+async function forceProvenance(roadmapId: string, value: "ai" | "seed") {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "REFUSING TO RUN: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not in the " +
+        "Playwright process env. playwright.config.ts loads .env.local — without these the " +
+        "template-mismatch rendering cannot be set up, and skipping would leave the phase's " +
+        "headline honesty feature unverified while the suite still reported green."
+    );
+  }
+
+  const res = await request.newContext().then((ctx) =>
+    ctx.patch(`${url}/rest/v1/roadmaps?id=eq.${roadmapId}`, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      data: { generated_from: value },
+    })
+  );
+  if (!res.ok()) {
+    throw new Error(`Could not force generated_from=${value}: ${res.status()} ${await res.text()}`);
+  }
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length !== 1 || rows[0].generated_from !== value) {
+    throw new Error(`generated_from was not written as ${value}: ${JSON.stringify(rows)}`);
+  }
+}
+
+// The Phase 5 role-scope change. Whether a failed generation actually WRITES
+// 'seed' needs AI_MOCK_MODE=error and a server restart — that stays manual suite
+// ROLE-03, the same treatment the Phase 4 FALL cases get. Everything downstream
+// of that write is automated below.
 test.describe("backend role (Phase 5)", () => {
   const created: string[] = [];
 
@@ -169,6 +218,84 @@ test.describe("backend role (Phase 5)", () => {
     // The mock provider succeeds, so this is a genuinely generated backend plan
     // and must NOT be labelled a template mismatch.
     await page.goto(`/roadmap/${body.id}`);
+    await expect(page.getByTestId("template-mismatch")).toHaveCount(0);
+  });
+
+  test("ROLE-03R: a seeded backend roadmap is labelled, on screen AND on paper", async ({
+    page,
+  }) => {
+    const res = await page.request.post("/api/roadmaps/generate", {
+      data: {
+        ...VALID_ANSWERS,
+        role: "SDE-2 · Backend",
+        weak: ["Databases & SQL"],
+      },
+    });
+    expect(res.status()).toBe(201);
+    const { id } = await res.json();
+    created.push(id);
+
+    // The mock provider succeeded, so this starts as a genuine backend plan.
+    await page.goto(`/roadmap/${id}`);
+    await expect(page.getByTestId("template-mismatch")).toHaveCount(0);
+
+    // Now put it in the state a failed generation would have left it in.
+    await forceProvenance(id, "seed");
+
+    // Roadmap screen: the notice appears and names the role, so the user can see
+    // WHICH plan they are holding rather than a generic "something went wrong".
+    await page.goto(`/roadmap/${id}`);
+    const notice = page.getByTestId("template-mismatch");
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText("SDE-2 · Backend");
+    await expect(notice).toContainText("frontend");
+
+    // Print view: the label has to survive onto paper. A notice that exists only
+    // on screen disappears exactly when the plan is being taken seriously.
+    await page.goto(`/roadmap/${id}/print`);
+    await expect(page.getByText("Template mismatch")).toBeVisible();
+    await expect(page.locator(".print-banner-amber")).toHaveCount(1);
+  });
+
+  test("ROLE-07R: the same seeded state on a FRONTEND role is not labelled", async ({ page }) => {
+    // The no-false-positive half. The frontend template IS the right template for
+    // a frontend role, and a warning that fires on a correct plan is one people
+    // learn to ignore — which would make the backend warning worthless too.
+    const res = await page.request.post("/api/roadmaps/generate", { data: VALID_ANSWERS });
+    expect(res.status()).toBe(201);
+    const { id } = await res.json();
+    created.push(id);
+
+    await forceProvenance(id, "seed");
+
+    await page.goto(`/roadmap/${id}`);
+    await expect(page.getByTestId("template-mismatch")).toHaveCount(0);
+
+    await page.goto(`/roadmap/${id}/print`);
+    await expect(page.locator(".print-banner-amber")).toHaveCount(0);
+  });
+
+  test("ROLE-08R: unknown provenance (NULL) makes no claim either way", async ({ page }) => {
+    // Every roadmap created before migration 0012 has generated_from = NULL. The
+    // rule is that NULL reads as "unknown", never as 'ai' and never as 'seed' —
+    // so a pre-Phase-5 backend roadmap must be silent, not warned about.
+    const res = await page.request.post("/api/roadmaps/generate", {
+      data: { ...VALID_ANSWERS, role: "SDE-2 · Backend", weak: ["Databases & SQL"] },
+    });
+    expect(res.status()).toBe(201);
+    const { id } = await res.json();
+    created.push(id);
+
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const ctx = await request.newContext();
+    const patched = await ctx.patch(`${url}/rest/v1/roadmaps?id=eq.${id}`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      data: { generated_from: null },
+    });
+    expect(patched.ok()).toBe(true);
+
+    await page.goto(`/roadmap/${id}`);
     await expect(page.getByTestId("template-mismatch")).toHaveCount(0);
   });
 

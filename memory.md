@@ -718,6 +718,32 @@
   as tests/README gotchas 1/4/6: **never identify a thing by a property that is
   only incidentally unique.**
 
+- **2026-09-02 · `/usage` overflowed sideways on a phone, and three other screens
+  were one CSS class short of the same bug — found by automating a manual case the
+  owner had skipped.** *(Phase 5 QA gate.)*
+  **How it surfaced:** the owner reported the manual matrix passed but, when asked
+  case by case, said the RESP (mobile) suite had been skipped/glanced at. Rather
+  than record "mobile unverified", the mechanically-decidable half was automated —
+  did the shell stack, and does `document.scrollWidth > clientWidth` — and
+  `RESP-C` immediately failed with `/usage overflows horizontally`.
+  **Root cause:** the Phase 5 responsive pass added `.grid-4` / `.grid-2` hooks and
+  applied them to the Progress and Roadmap screens **only**. A grep for
+  `gridTemplateColumns` found four more that never got one: `/usage`'s 4-up stat
+  grid and 3-up cost grid, Library's 2-up card grid, and — the two that actually
+  overflow rather than merely crowd — the `1fr 300px` two-pane layouts on the
+  Topic and Onboarding screens, whose 300px rail does not shrink.
+  **Fix:** `.grid-3` and `.grid-side` added to the ≤860px block, and the class
+  applied to all five. The rail stacks *under* the content on purpose: on Topic it
+  holds resources and exercises, which are secondary to the mental model and the
+  notes you came to write.
+  **The lesson, which is about process not CSS:** a manual matrix is only worth the
+  cases that actually get run, and the ones needing a second device are the ones
+  that don't. Anything in a manual suite that a browser can decide *mechanically*
+  ("does the page overflow") should be automated, leaving the matrix for what
+  genuinely needs judgement (is it pleasant to use, are tap targets comfortable).
+  Applying a CSS hook screen-by-screen also invites exactly this: the grep that
+  found the gap should have been part of writing the feature, not of testing it.
+
 ## Deploy / infra facts
 
 - **2026-08-08 · Gemini's free tier returned 429 "prepayment credits are depleted"

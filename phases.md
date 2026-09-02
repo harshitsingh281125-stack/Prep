@@ -212,16 +212,44 @@ PASS having measured nothing.
   resources marked *unverified* and unlinked. `/usage` shows the embedding call
   metered alongside the completion — two calls per grounded topic, not one.
 
-## Phase 5 — Print/export + polish  🟡 BUILT — awaiting the manual QA gate
+## Phase 5 — Print/export + polish ✅ DONE (2026-09-02)
 **Goal:** shippable v1.
-**Status (2026-09-02):** code-complete; **Vitest 248/248, Playwright 73/73, build +
-tsc + lint clean**. Migration `0012_roadmap_provenance.sql` written **and applied**
-(column verified present via PostgREST). Branch `phase-4.5-rag`.
-**The Rule 27 gate is NOT yet closed** — [tests/phase-5-print-polish.md](./tests/phase-5-print-polish.md)
-holds **69 manual cases across 7 suites** (PRINT 16, ROLE 10, MARK 10, RESP 9,
-A11Y 12, STATE 8, UI 4) and has not been run. This phase is not ✅ DONE until it is, and the
-status line will record which cases actually ran versus were skipped — 4.5's line had
-to be walked back for exactly that reason.
+**Status:** built + tested — **Vitest 248/248, Playwright 81/81, build + tsc + lint
+clean**. Migration `0012_roadmap_provenance.sql` applied (column verified present).
+Branch `phase-5-print-polish` / PR open.
+See [tests/phase-5-print-polish.md](./tests/phase-5-print-polish.md).
+
+**On the manual pass, stated precisely, because a status line gets read back as
+fact.** The owner ran the 69-case matrix and reported it passing. Asked case by
+case which of the awkward-setup rows were actually exercised, the answer was:
+
+| Exercised | Not exercised |
+|---|---|
+| A11Y-04/05/06 **with a real screen reader** | ROLE-03/04/05/07 + MARK-04 — the `AI_MOCK_MODE=error` env-injection runs |
+| PRINT-09 **with a genuinely behind-pace roadmap** | STATE-03/04 — the error boundary (needs a dead Supabase host + restart) |
+| The remaining ordinary cases, on the owner's report | STATE-06 — cross-user 404 with a second account |
+| | RESP-01…09 — mobile, skipped/glanced at |
+| | PRINT-04 — no roadmap with ≥6 weeks, so page-break behaviour was never really tested |
+
+**Rather than record five skipped groups, three were converted into automation**
+(and one was already covered):
+- **RESP** → `tests/e2e/responsive.spec.ts` (5 cases). Its **first run found a real
+  bug**: `/usage` overflowed horizontally on a phone, and Library, Topic and
+  Onboarding were one CSS class short of the same defect. Fixed; see memory.md.
+- **ROLE-03/05/07/08 (the rendering half)** → `ROLE-03R/07R/08R` in `print.spec.ts`,
+  which force `generated_from` with the service role and assert the TEMPLATE
+  MISMATCH notice renders on screen **and on the print-out**, that a frontend role
+  in the same state is *not* labelled, and that NULL provenance makes no claim.
+- **STATE-06** was already covered by `rls.spec.ts` RLS-01, which this phase
+  strengthened to assert the response **body** before the status.
+
+**What therefore remains genuinely unverified, by anyone:**
+1. that a **failed generation actually writes `'seed'`** (the env-injection half of
+   ROLE-03 — the write is exercised only with the mock provider succeeding);
+2. the **error boundary's rendering** (STATE-03/04) — no automated coverage either;
+3. **print page-break behaviour on a multi-page document** (PRINT-04) — no roadmap
+   long enough was tested, and `break-inside: avoid` is a hint browsers may ignore.
+
 - **Roadmap print/export — `/roadmap/[id]/print`.** A server component in a *sibling*
   route group, `app/(print)/`, so the URL is unchanged but the page escapes the app
   shell (whose `height:100vh; overflow:hidden` would clip a multi-page document, and

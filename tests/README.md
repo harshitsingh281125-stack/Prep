@@ -17,9 +17,17 @@ The automated suites cover the highest-value subset; everything else stays manua
 
 **Current counts:** Vitest **248** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
 + 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag
-+ 16 print-schedule + 17 catalog-track + 5 detail-source) · Playwright **73** (10
-Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 8 print/role + 1 content
-marker), all green as of 2026-09-02.
++ 16 print-schedule + 17 catalog-track + 5 detail-source) · Playwright **81** (10
+Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 11 print/role + 1 content
+marker + 5 responsive), all green as of 2026-09-02.
+
+**Two Phase 5 suites exist because a manual case got skipped.** `responsive.spec.ts`
+and the `ROLE-*R` cases in `print.spec.ts` automate the mechanically-decidable half
+of manual suites RESP and ROLE — the first run of `responsive.spec.ts` immediately
+found `/usage` (and three more screens) overflowing on a phone. **Rule of thumb this
+established: if a browser can decide it, don't leave it in the manual matrix.** Keep
+the matrix for judgement — is it pleasant, are tap targets comfortable, does a wall
+of chips read as scannable or as noise.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 
