@@ -126,7 +126,7 @@ export default async function UsagePage() {
         ) : (
           <>
             {/* Stat tiles */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "22px" }}>
+            <div className="grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "22px" }}>
               <StatTile
                 testId="stat-per-roadmap"
                 label="$ / roadmap"
@@ -166,7 +166,7 @@ export default async function UsagePage() {
               }}
             >
               <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "14px" }}>Cost</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
                 <Figure
                   label="Actually charged"
                   value={usd(s.actualUsd)}

@@ -212,11 +212,91 @@ PASS having measured nothing.
   resources marked *unverified* and unlinked. `/usage` shows the embedding call
   metered alongside the completion — two calls per grounded topic, not one.
 
-## Phase 5 — Print/export + polish
+## Phase 5 — Print/export + polish ✅ DONE (2026-09-02)
 **Goal:** shippable v1.
-- Roadmap PDF/print view (`Prep-print.dc.html` as reference).
-- Empty/error/loading states, accessibility pass, mobile-reasonable layout.
-- README with the "why" behind each subsystem (interview-defensibility).
+**Status:** built + tested — **Vitest 248/248, Playwright 81/81, build + tsc + lint
+clean**. Migration `0012_roadmap_provenance.sql` applied (column verified present).
+Branch `phase-5-print-polish` / PR open.
+See [tests/phase-5-print-polish.md](./tests/phase-5-print-polish.md).
+
+**On the manual pass, stated precisely, because a status line gets read back as
+fact.** The owner ran the 69-case matrix and reported it passing. Asked case by
+case which of the awkward-setup rows were actually exercised, the answer was:
+
+| Exercised | Not exercised |
+|---|---|
+| A11Y-04/05/06 **with a real screen reader** | ROLE-03/04/05/07 + MARK-04 — the `AI_MOCK_MODE=error` env-injection runs |
+| PRINT-09 **with a genuinely behind-pace roadmap** | STATE-03/04 — the error boundary (needs a dead Supabase host + restart) |
+| The remaining ordinary cases, on the owner's report | STATE-06 — cross-user 404 with a second account |
+| | RESP-01…09 — mobile, skipped/glanced at |
+| | PRINT-04 — no roadmap with ≥6 weeks, so page-break behaviour was never really tested |
+
+**Rather than record five skipped groups, three were converted into automation**
+(and one was already covered):
+- **RESP** → `tests/e2e/responsive.spec.ts` (5 cases). Its **first run found a real
+  bug**: `/usage` overflowed horizontally on a phone, and Library, Topic and
+  Onboarding were one CSS class short of the same defect. Fixed; see memory.md.
+- **ROLE-03/05/07/08 (the rendering half)** → `ROLE-03R/07R/08R` in `print.spec.ts`,
+  which force `generated_from` with the service role and assert the TEMPLATE
+  MISMATCH notice renders on screen **and on the print-out**, that a frontend role
+  in the same state is *not* labelled, and that NULL provenance makes no claim.
+- **STATE-06** was already covered by `rls.spec.ts` RLS-01, which this phase
+  strengthened to assert the response **body** before the status.
+
+**What therefore remains genuinely unverified, by anyone:**
+1. that a **failed generation actually writes `'seed'`** (the env-injection half of
+   ROLE-03 — the write is exercised only with the mock provider succeeding);
+2. the **error boundary's rendering** (STATE-03/04) — no automated coverage either;
+3. **print page-break behaviour on a multi-page document** (PRINT-04) — no roadmap
+   long enough was tested, and `break-inside: avoid` is a hint browsers may ignore.
+
+- **Roadmap print/export — `/roadmap/[id]/print`.** A server component in a *sibling*
+  route group, `app/(print)/`, so the URL is unchanged but the page escapes the app
+  shell (whose `height:100vh; overflow:hidden` would clip a multi-page document, and
+  whose dark theme would make the preview a lie about the print-out).
+  **Export is `window.print()`, not a server-generated PDF** — the browser already
+  does pagination, page size, margins and Save-as-PDF everywhere; server-side means
+  headless Chromium (doesn't fit a Vercel function) or re-implementing layout.
+  **It recomputes nothing** — same `lib/progress/compute.ts` functions as the
+  dashboard, so print and screen cannot disagree. Only new logic is
+  `lib/print/schedule.ts` (recall cards bucketed by **UTC calendar day**, Rule 15).
+  ⚠️ **Correction:** the reference this bullet used to name, `Prep-print.dc.html`,
+  **is not in the repo and never was** — the print view was built from design.md §8's
+  written spec, and design.md now says so.
+- **Backend role + honest fallback** (settles the long-deferred role-scope question).
+  `SDE-2 · Backend` ships with backend weak areas that line up with real Phase 4.5
+  corpus areas. Because the seeded `CATALOG` is a *frontend* curriculum, a fallback
+  generation for that role is permanently labelled **TEMPLATE MISMATCH** on the
+  Roadmap screen and the print-out — Rule 9 says AI must never hard-block, which is
+  not the same as never telling the user. Requires `roadmaps.generated_from`
+  (migration 0012), which **reverses** Phase 4's "report the source, don't store it".
+  NULL = unknown provenance and is never read as `'ai'`.
+- **Content-coverage markers on the Roadmap screen.** Each topic row carries a chip
+  saying whether its study material exists and how grounded it is
+  (`VETTED` / `AI` / `TEMPLATE` / `NO CONTENT`), and each week header shows an
+  `n/total studied` count — so "what have I actually generated?" is answerable
+  without opening every topic. Fed by `detailSource:detail->>source`, which pulls
+  ONE string out of the topic's detail jsonb rather than shipping the whole blob
+  for 25 topics. The ungenerated state is drawn (dashed, faint) rather than
+  omitted, because an absent chip is invisible when you are scanning for the rows
+  that still need work.
+- **Empty/error/loading states:** `error.tsx` + `global-error.tsx` (the only boundary
+  above the root layout, which is where `(app)/layout.tsx`'s `getUser()` would throw),
+  `not-found.tsx` (says "not found", never "forbidden" — distinguishing them is an
+  existence oracle), and a shared skeleton.
+  **Hard-won placement rule:** the skeleton lives on `/library`, `/progress`,
+  `/recall`, `/usage` only. A `loading.tsx` makes its route **stream**, which flushes
+  a 200 before `notFound()` can run — it silently downgraded `/roadmap/[id]`'s
+  cross-user 404 to a 200 and turned three tests red. **A route that can 404 gets no
+  `loading.tsx`.** (No data leaked; verified by asserting the body. See memory.md.)
+- **Accessibility pass:** skip link, `:focus-visible` ring, `aria-current` on nav,
+  labelled theme toggle, `prefers-reduced-motion`.
+- **Mobile-reasonable layout:** CSS-only — under 860px the 244px sidebar becomes a
+  top bar and the grids collapse. No drawer: a state machine plus focus trapping and
+  scroll locking to hide four links that fit on one row is a bad trade. This forced
+  the app's first class-based CSS, because inline styles can express neither a media
+  query nor a pseudo-class nor a print rule.
+- **README** with the "why" behind each subsystem (interview-defensibility).
 - **Demo:** export a roadmap to PDF; end-to-end run-through clean.
 
 ## Phase 6 (v2 backlog — not now)
@@ -248,10 +328,13 @@ PASS having measured nothing.
   **not** normalised). Column is **`vector(1536)`** because **pgvector cannot index a
   `vector` wider than 2000 dims** — 3072 would mean a seq scan forever or `halfvec`
   at half precision. See memory.md + Architecture §4.
-- **Onboarding wording / weak-area taxonomy / role scope** — deferred past Phase 4
-  on purpose (2026-08-12). Roles and weak-area options are frontend-specific because
-  **the seeded fallback catalog is a frontend curriculum**; adding "Backend" would
-  mean an AI failure hands that user a frontend plan (Rule 9 breaks quietly). Opening
-  it up needs either role-dependent options + honest fallback labelling, or real
-  per-role catalogs. Revisit in Phase 5. See memory.md.
+- ~~**Onboarding wording / weak-area taxonomy / role scope**~~ — **SETTLED
+  2026-08-27 (Phase 5)** via the first of the two routes this entry named:
+  role-dependent options **plus honest fallback labelling**. `SDE-2 · Backend`
+  ships; when the seeded frontend catalog serves a backend user, the roadmap is
+  permanently labelled TEMPLATE MISMATCH rather than passed off as their plan.
+  The framing here was one option too narrow — it read as "don't ship it or spend
+  weeks on a catalog", but the failure mode was *quiet*, and the fix for quiet is
+  *loud*. **Still open:** real per-role catalogs. A backend user's fallback is still
+  frontend content — correctly labelled, not fixed. See memory.md.
 - Product name (still "Prep").

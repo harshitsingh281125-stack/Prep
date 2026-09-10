@@ -16,9 +16,18 @@ export default function AppShell({
   children: ReactNode;
 }) {
   return (
-    <div style={{ height: "100vh", overflow: "hidden", display: "flex" }}>
+    <div className="app-shell" style={{ height: "100vh", overflow: "hidden", display: "flex" }}>
+      {/* Skip link (Phase 5, a11y): the sidebar is ~7 tab stops before the
+          content on every screen. Rendered first so it is the first thing a
+          keyboard user reaches; visually hidden until focused (globals.css). */}
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <Sidebar user={user} recallDue={recallDue} />
-      <main style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <main
+        id="main-content"
+        style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+      >
         {children}
       </main>
     </div>

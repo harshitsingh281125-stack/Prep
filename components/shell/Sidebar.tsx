@@ -103,6 +103,8 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
 
   return (
     <aside
+      className="app-sidebar"
+      aria-label="Main"
       style={{
         width: "244px",
         flex: "0 0 244px",
@@ -114,7 +116,7 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
       }}
     >
       {/* Logo mark */}
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 8px 18px" }}>
+      <div className="app-brand" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 8px 18px" }}>
         <div
           style={{
             width: "30px",
@@ -141,16 +143,38 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
       </div>
 
       {/* Nav */}
-      <nav style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+      <nav className="app-nav" style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
         {NAV.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
-            <Link key={item.href} href={item.href} style={navStyle(active)}>
+            <Link
+              key={item.href}
+              href={item.href}
+              // aria-current tells a screen reader which nav item is the current
+              // page. Until Phase 5 "active" was communicated purely by colour and
+              // background — information a sighted mouse user gets for free and a
+              // screen-reader user got not at all.
+              aria-current={active ? "page" : undefined}
+              style={navStyle(active)}
+            >
               {item.icon}
               <span style={{ flex: 1, textAlign: "left" }}>{item.label}</span>
               {item.href === "/recall" && recallDue > 0 && (
                 <span style={badgeStyle} data-testid="recall-due-badge">
                   {recallDue}
+                  <span
+                    style={{
+                      position: "absolute",
+                      width: "1px",
+                      height: "1px",
+                      overflow: "hidden",
+                      clip: "rect(0 0 0 0)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {" "}
+                    cards due
+                  </span>
                 </span>
               )}
             </Link>
@@ -161,6 +185,7 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
       {/* New roadmap (routes to onboarding — a Phase 1 screen; safe placeholder link) */}
       <Link
         href="/onboarding"
+        className="app-new-roadmap"
         style={{
           display: "flex",
           alignItems: "center",
@@ -186,13 +211,13 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
         New roadmap
       </Link>
 
-      <div style={{ flex: 1 }} />
+      <div className="app-spacer" style={{ flex: 1 }} />
 
       {/* Theme toggle */}
       <ThemeToggle />
 
       {/* User card — real identity + working sign-out */}
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px", borderTop: "1px solid var(--border)" }}>
+      <div className="app-user" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px", borderTop: "1px solid var(--border)" }}>
         <div
           style={{
             width: "28px",

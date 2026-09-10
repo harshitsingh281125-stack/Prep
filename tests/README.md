@@ -5,20 +5,29 @@ E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
 |-------|--------------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering; **RAG grounding validator + retrieval query + `embed()`** | `tests/unit/*.test.ts` |
-| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS + **both RAG branches and corpus RLS** (needs real session + DB) | `tests/e2e/*.spec.ts` |
-| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, **the real AI provider, and whether retrieval retrieves the RIGHT documents** | `tests/phase-<n>-*.md` |
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering; RAG grounding validator + retrieval query + `embed()`; **print recall-schedule bucketing + the role/track/mismatch table** | `tests/unit/*.test.ts` |
+| **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS + both RAG branches and corpus RLS + **the print route's security surface and the backend role** (needs real session + DB) | `tests/e2e/*.spec.ts` |
+| **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, the real AI provider, whether retrieval retrieves the RIGHT documents, **and what the export actually looks like on paper** | `tests/phase-<n>-*.md` |
 
 Manual matrices, one per phase:
 [phase-1-roadmaps.md](./phase-1-roadmaps.md) · [phase-2-recall.md](./phase-2-recall.md) ·
 [phase-3-progress.md](./phase-3-progress.md) · [phase-4-ai-gateway.md](./phase-4-ai-gateway.md) ·
-[phase-4.5-rag.md](./phase-4.5-rag.md).
+[phase-4.5-rag.md](./phase-4.5-rag.md) · [phase-5-print-polish.md](./phase-5-print-polish.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **210** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
-+ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag) ·
-Playwright **64** (10 Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG), all green as
-of 2026-08-14.
+**Current counts:** Vitest **248** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
++ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag
++ 16 print-schedule + 17 catalog-track + 5 detail-source) · Playwright **81** (10
+Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 11 print/role + 1 content
+marker + 5 responsive), all green as of 2026-09-02.
+
+**Two Phase 5 suites exist because a manual case got skipped.** `responsive.spec.ts`
+and the `ROLE-*R` cases in `print.spec.ts` automate the mechanically-decidable half
+of manual suites RESP and ROLE — the first run of `responsive.spec.ts` immediately
+found `/usage` (and three more screens) overflowing on a phone. **Rule of thumb this
+established: if a browser can decide it, don't leave it in the manual matrix.** Keep
+the matrix for judgement — is it pleasant, are tap targets comfortable, does a wall
+of chips read as scannable or as noise.
 
 ### The E2E suite runs against the MOCK AI provider — read this before trusting it
 
@@ -118,6 +127,40 @@ All produced failures that *looked* like app bugs and weren't — see memory.md.
 7. **Read the response shape before asserting on it.** Two Phase 4.5 specs asserted
    `body.summary.calls` from `/api/usage`, which returns `today` and `recent`. Cost
    a red run that had nothing to do with the feature.
+8. **A route with a `loading.tsx` cannot return a 404 status.** `loading.tsx` wraps
+   the segment in a Suspense boundary, so the route **streams** — the 200 headers are
+   already flushed by the time the async page calls `notFound()`. The 404 *page*
+   renders; the *status code* stays 200. Phase 5 added one at the `(app)` group root
+   and turned three passing tests red, including the cross-user RLS case, which
+   reads like a breach and wasn't (the body was verified: correct 404 page, no
+   leak). **Rule now enforced by placement: a route that can call `notFound()` has
+   no `loading.tsx`** — the skeleton sits on `/library`, `/progress`, `/recall` and
+   `/usage` only.
+9. **Assert the body BEFORE the status on a security case.** RLS-01 asserted only
+   the status, so when it flipped to 200 the test could not distinguish "wrong
+   status code, correct empty page" from "user B is reading user A's roadmap" — a
+   cosmetic bug and a catastrophe. It now checks the content first, because the
+   important assertion must not sit behind the one that aborts early.
+10. **This suite is occasionally flaky against the shared DB, and the flakiness
+   imitates a real bug.** On 2026-09-02 a full run went 4 red (`RAG-02`, two recall
+   cases, and the Progress accuracy empty-state), then the same specs passed in
+   isolation on both the changed and unchanged tree, and the next full run was
+   73/73. The signature to recognise: an empty recall queue where cards were
+   generated, and `/progress` reporting an accuracy percentage where the test
+   expects `—` (i.e. `recall_reviews` rows exist that the run did not create).
+   **Do not conclude a code change caused a red run from one run each way** — that
+   is exactly the wrong call this note exists to prevent. Re-run the spec in
+   isolation, both with and without the change, before believing a bisect. Root
+   cause is still unidentified; leftover rows on the shared project are the
+   leading suspect, and it is why `seedQueue()` asserts loudly on a 403.
+11. **Never identify an element by a property that is only *incidentally* unique.**
+   `study-flow.spec.ts` located the kill-criterion checkbox as the first
+   `button[aria-pressed]`. Phase 5 gave the sidebar's theme toggle a (correct)
+   `aria-pressed`; the sidebar renders first, so the selector silently began
+   matching *that* — and because the theme toggle is also `aria-pressed="false"` in
+   the dark theme, the test's own guard assertion **passed** before it clicked the
+   wrong button and timed out. Use `data-testid`. Fourth instance of this shape in
+   the project (see gotchas 1, 4, 6).
 8. **Never assert that a WINDOWED aggregate grows.** AI-16 asserted
    `allTime.calls` strictly increased after a generation. `/api/usage` aggregates at
    most `USAGE_WINDOW` (500) rows, so the moment qa-a crossed 500 lifetime

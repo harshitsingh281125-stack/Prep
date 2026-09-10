@@ -71,7 +71,7 @@ owned-vs-not-owned):
 | `/roadmap/[id]/topic/[topicId]` | Topic/Study | server-fetch + client notes |
 | `/recall` | Recall | client (grading interactions) |
 | `/progress` | Progress | server-fetch aggregates + client charts |
-| `/roadmap/[id]/print` | Print export | print-optimized (see `Prep-print.dc.html`) |
+| `/roadmap/[id]/print` | Print export | server component in the **`(print)` route group** — no app shell (see §5c) |
 
 ### API route handlers (all auth-gated)
 | Route | Method | Purpose | AI? |
@@ -124,12 +124,25 @@ roadmaps (
   hours_logged int default 0,     -- VESTIGIAL since Phase 3 — never written, never read
   status text default 'fresh',    -- VESTIGIAL since Phase 3 — see §4c, status is derived on read
   target_date date,
+  generated_from text                   -- Phase 5: 'ai' | 'seed' | null (pre-0012, unknown)
+    check (generated_from is null or generated_from in ('ai','seed')),
   created_at timestamptz default now()  -- Phase 3 measures pace from this
 )
 -- NOTE (Phase 3): hours_logged and status are dead columns. Hours come from
 -- summing study_sessions; status comes from deriveStatus() at render time. They
 -- are left in place rather than dropped so the migration history stays additive,
 -- but nothing reads them — see §4c for why a STORED status is unsafe.
+--
+-- NOTE (Phase 5, migration 0012): `generated_from` REVERSES a Phase 4 decision.
+-- Phase 4 reported the generator path in the POST response and deliberately did
+-- NOT store it, because it was a fact about one request and /usage was the
+-- durable audit trail. Phase 5 added a role the seeded catalog cannot serve
+-- ('SDE-2 · Backend' — CATALOG is a frontend curriculum), and at that point
+-- "which generator ran" became a property of the PLAN, not of the request: a
+-- backend candidate whose generation fell back is holding a frontend plan for
+-- weeks. See §5c. NULL means unknown provenance and must never be read as 'ai'.
+-- The CHECK constrains the VALUES only — an owner can still update their own row
+-- under the `for all` policy; that is accepted, not overlooked (see 0012).
 
 weeks (
   id uuid primary key default gen_random_uuid(),
@@ -663,6 +676,73 @@ steps we already own end-to-end. A framework would re-introduce exactly what Rul
 exists to keep out (a vendor SDK in product code) and hide the one interesting part.
 There is also **no agent loop** in Prep, so LangGraph has nothing to orchestrate.
 Kept the hand-rolled gateway; prepared the "why not" answer instead.
+
+## 5c. Print/export + the honest-fallback label (Phase 5)
+
+### The print view — `/roadmap/[id]/print`
+
+A server component in a **sibling route group**, `app/(print)/`, whose layout
+supplies nothing but a light-only `.print-root` wrapper. Two reasons it could not
+live inside `(app)`: that layout's `height:100vh; overflow:hidden` would clip a
+multi-page document to one screenful, and its dark-by-default theme would make the
+on-screen preview a lie about what comes out of the printer. Groups add no URL
+segment, so the path Architecture has specified since Phase 0 is unchanged.
+
+**It recomputes nothing.** The page calls the same `lib/progress/compute.ts`
+functions the dashboard does, so the printed hours, pace, accuracy and blockers
+cannot disagree with the screen — and the print-out is the copy that gets carried
+into a room. The only new logic is `lib/print/schedule.ts`, which buckets
+`recall_cards` into overdue / today / next-7-days / later by **UTC calendar day**
+(Rule 15), pure with `now` injected so the day boundaries are unit-testable.
+
+**Export is `window.print()`, not a generated PDF file** (settled Phase 5). The
+browser's print pipeline already does pagination, page size, margins and Save-as-PDF
+on every platform. Server-side PDF generation means headless Chromium, which does
+not fit a Vercel serverless function, or a PDF library that would have us
+re-implement layout by hand.
+
+**Raw hex is used here and nowhere else** — Rule 21's single stated exception.
+Print colour management is not the screen pipeline, `print-color-adjust` support is
+uneven, and paper has exactly one theme; a page inheriting `--bg` would print the
+dark theme as a black rectangle. For the same structural reason this is the app's
+only **stylesheet** rather than inline styles: `@page` margins and `break-inside`
+have no inline form at all.
+
+**Auth is not re-checked on this route.** The root middleware gates every path
+except `/login` and `/auth/*`, and the page's own query runs under RLS, so a
+stranger's id returns no row and `notFound()` fires — the same two-layer story as
+every other screen rather than a third bespoke check that could drift.
+
+### The honest-fallback label
+
+Phase 5 opened the role list to **`SDE-2 · Backend`**, which the seeded catalog
+cannot serve. The resolution is not to pretend it can; it is to make the fallback
+**loud and durable**:
+
+- `roadmaps.generated_from` (`'ai' | 'seed' | null`) is written at creation — see
+  the §4 note on why this reverses a Phase 4 decision;
+- `templateMismatch(role, generatedFrom)` in `lib/seed/catalog.ts` fires only when
+  the seed actually ran **and** the role needs a track the catalog is not. NULL
+  provenance (every pre-0012 row) stays silent, because we cannot make a definite
+  claim about a row we never recorded;
+- the Roadmap screen and the print view both render the notice, amber not red —
+  the plan's structure, hours and pace maths are all correct; only the topics are
+  from the wrong track.
+
+Fullstack is deliberately **not** treated as a mismatch: the catalog genuinely
+serves it in part, and a warning that fires on a mostly-correct plan is one people
+learn to ignore.
+
+### Polish surfaces added in the same phase
+
+| File | Job |
+|------|-----|
+| `app/(app)/loading.tsx` | One Suspense fallback for every in-app screen. The boundary sits between layout and page, so the sidebar never flickers. |
+| `app/(app)/error.tsx` | Segment error boundary (client, takes `reset`). Shows the `digest` so a reported failure is traceable to a server log line. |
+| `app/global-error.tsx` | The only boundary above the root layout — catches a throw in `(app)/layout.tsx`, which does `getUser()` on every request. Renders its own `<html>`. |
+| `app/not-found.tsx` | The 404. Says "not found", never "forbidden": distinguishing them would confirm a stranger's guess that a roadmap id is real. |
+| Roadmap content markers | Each topic row reports whether its detail exists and how grounded it is; each week header shows `n/total studied`. Fed by `detailSource:detail->>source` so the query extracts one string instead of the whole detail jsonb for every topic. Unknown values degrade to "no content". |
+| `globals.css` (Phase 5 block) | The app's only class-based rules — `:focus-visible`, skip link, `prefers-reduced-motion`, and the ≤860px breakpoint that turns the 244px sidebar into a top bar. Inline styles can express none of these three things. |
 
 ## 6. Auth & security
 

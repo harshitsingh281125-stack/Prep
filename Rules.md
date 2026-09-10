@@ -42,6 +42,16 @@
 9. **Every structured generation is schema-validated** with a retry-on-malformed
    path, then a **seeded-template fallback**. AI must **never hard-block** a user
    flow — the app stays usable with AI fully off.
+   **Sharpened 2026-08-27 (Phase 5): "never blocks" is not "never tell them".**
+   A fallback the user cannot see is the failure mode this rule is really guarding
+   against, because it is the one that ships a wrong answer wearing a right answer's
+   clothes. The test case that forced this: the seeded catalog is a *frontend*
+   curriculum, so once `SDE-2 · Backend` existed, a failed generation would have
+   handed that user a frontend plan and called it their plan — Rule 9 satisfied to
+   the letter and broken in spirit. So a fallback whose content is materially wrong
+   for what the user asked must be **labelled, durably** (persisted on the row, not
+   announced once in a response the UI forgets). See `roadmaps.generated_from`,
+   `templateMismatch()`, Architecture §5c.
 10. **Prompt caching** on fixed system/rubric scaffolding wherever the provider
     supports it.
 11. **Every AI call writes an `ai_usage` row** (route, model, tokens, cost) —
@@ -74,6 +84,12 @@
     spacing, and screen structure come from it — see [design.md](./design.md).
 21. **Light + dark both ship.** Every color goes through an OKLCH token; no raw
     hex in components (the print view is the one allowed exception).
+    *Exercised in Phase 5:* `app/(print)/print.css` is the only raw-hex surface and
+    the only stylesheet — print colour management is not the screen pipeline and
+    paper has one theme, and `@page`/`break-inside` have no inline form. The one
+    other literal-colour file is `app/global-error.tsx`, which is not an exception
+    so much as the boundary condition this rule assumes: it renders when the root
+    layout (and therefore `globals.css`, and therefore the token layer) has failed.
 22. **Charts are hand-rolled SVG** for v1 — no charting dependency.
 
 ## 6. Process rules

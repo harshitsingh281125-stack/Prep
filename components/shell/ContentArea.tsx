@@ -14,7 +14,7 @@ export default function ContentArea({
 }) {
   const inner: CSSProperties = { maxWidth: `${maxWidth}px`, margin: "0 auto" };
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "28px" }}>
+    <div className="app-content" style={{ flex: 1, overflowY: "auto", padding: "28px" }}>
       <div style={inner}>{children}</div>
     </div>
   );

@@ -116,7 +116,7 @@ export default function OnboardingWizard({
   if (atLimit) return <LockedState maxRoadmaps={maxRoadmaps} onLibrary={() => router.push("/library")} />;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
+    <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
       {/* Left: the wizard */}
       <div>
         {/* Progress dots */}

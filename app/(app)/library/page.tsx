@@ -113,7 +113,7 @@ export default async function LibraryPage() {
           <EmptyState />
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px" }}>
+            <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px" }}>
               {cards.map((c) => (
                 <RoadmapCard key={c.id} data={c} />
               ))}

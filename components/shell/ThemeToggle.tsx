@@ -40,7 +40,14 @@ export default function ThemeToggle() {
 
   return (
     <button
+      type="button"
+      className="app-theme"
       onClick={toggle}
+      // The visible label is "☾ Dark" — a STATE, not an action, which is
+      // ambiguous read aloud ("dark… button" could mean either). aria-label says
+      // what pressing it does; aria-pressed says which state it is in.
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+      aria-pressed={theme === "light"}
       style={{
         display: "flex",
         alignItems: "center",

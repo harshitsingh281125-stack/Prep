@@ -135,6 +135,12 @@ export async function POST(request: Request) {
       weeks_count: seed.weeksCount,
       hours_planned: seed.hoursPlanned,
       status: "fresh",
+      // Phase 5: provenance is now PERSISTED, not just reported below. Once a
+      // role exists that the seeded catalog cannot serve (SDE-2 · Backend), "the
+      // model was down so this is the frontend template" is a fact about the plan
+      // the user will be held to for weeks — not a fact about this HTTP request.
+      // See migration 0012 and templateMismatch() in lib/seed/catalog.ts.
+      generated_from: source,
     })
     .select("id")
     .single();
@@ -235,7 +241,9 @@ export async function POST(request: Request) {
   }
 
   // `source` tells the client whether this came from the model or the seeded
-  // template. Reported, not stored: it's true at creation time and the /usage
-  // readout is the durable audit trail (every dispatch, and how it ended).
+  // template, so onboarding can say so immediately. Since Phase 5 it is ALSO
+  // stored on the row (generated_from) — /usage remains the audit trail of every
+  // dispatch, but the roadmap itself now carries its own provenance so the
+  // honesty label survives the toast that first announced it.
   return NextResponse.json({ id: roadmap.id, source }, { status: 201 });
 }

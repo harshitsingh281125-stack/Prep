@@ -176,6 +176,7 @@ export default async function ProgressPage() {
 
         {/* Stat tiles */}
         <div
+          className="grid-4"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
@@ -222,7 +223,7 @@ export default async function ProgressPage() {
         </div>
 
         {/* Charts */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "22px" }}>
+        <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "22px" }}>
           <HoursChart bars={bars} />
           <AccuracyChart points={points} overall={accuracy} direction={direction} />
         </div>
