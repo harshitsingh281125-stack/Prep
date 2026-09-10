@@ -45,7 +45,7 @@ Not a goal for v1: "learn anything with AI." Purpose-built for **SDE interview p
 - Server-side arbitrary code execution / sandboxing.
 - AI-graded code submissions (depends on the sandbox).
 - Teams, sharing, social features, mobile app.
-- Multi-domain content (only frontend SDE prep tracks for v1).
+- Multi-domain content (only SDE prep tracks for v1).
 
 ## 5. Screens & feature scope
 
