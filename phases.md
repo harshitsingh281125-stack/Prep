@@ -299,6 +299,39 @@ case which of the awkward-setup rows were actually exercised, the answer was:
 - **README** with the "why" behind each subsystem (interview-defensibility).
 - **Demo:** export a roadmap to PDF; end-to-end run-through clean.
 
+## Phase 6.1 — Second AI provider + failover (⏳ code-complete, QA gate open)
+
+**Goal:** prove Rule 7's "a provider is a config binding" by adding a second one,
+and turn a provider outage from "degrade to seeded content" into "degrade to a
+different model".
+
+- **Groq adapter** (`lib/ai/providers/groq.ts`) on open-weight gpt-oss models —
+  `openai/gpt-oss-120b` (reasoning) / `openai/gpt-oss-20b` (classification), both
+  confirmed against the live `models.list` before any adapter code was written.
+- **Two modes:** manual switch (`AI_PROVIDER=groq`) and automatic failover
+  (Gemini primary → Groq on a failed dispatch → seeded fallback). `AI_FAILOVER=off`
+  restores pre-6.1 behaviour exactly.
+- **`Provider` split into `CompletionProvider` + `EmbeddingProvider`** — Groq has
+  no embeddings endpoint, so the embedding tier always resolves to Gemini and the
+  compiler enforces it. During a Gemini outage, completions fail over while RAG
+  degrades to `unverified`: an honest *partial* failover.
+- **`reasoning_effort: 'low'`**, measured against the real validator — all four
+  settings pass, so the cheapest wins (11% reasoning tokens vs `high`'s 84%).
+- **Cache-metric fix:** hit-rate and saving-ratio now computed over cache-capable
+  rows only. Groq does no prompt caching, and the old global denominator would have
+  made Gemini's caching look like it regressed.
+- **Config drift fixed:** `AI_BILLING_MODE=paid` — the account moved to Gemini's
+  paid tier around 2026-08-06 while the flag still defaulted to `free`, so
+  `cost_usd` recorded $0 on every row for two phases.
+- **Demo:** corrupt the Gemini key, generate a roadmap, watch `/usage` record an
+  errored Gemini dispatch followed by a successful `gpt-oss-120b` one — with a real
+  roadmap on screen rather than the seeded fallback.
+
+**Status:** `npm run build` clean · Vitest **283/283** (was 248) · Playwright
+**81/81** (unchanged, no regression). **Manual QA gate NOT yet run** —
+`tests/phase-6.1-groq-provider.md`, 42 cases across 8 suites. Not demoable until
+that pass is reported (Rule 27).
+
 ## Phase 6 (v2 backlog — not now)
 - Client-side iframe code execution → later server-side sandbox.
 - AI-graded code submissions (depends on sandbox).

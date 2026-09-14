@@ -57,14 +57,16 @@ export type ProviderEmbedding = {
 };
 
 /**
- * A provider adapter. The gateway owns caps, validation, retry and metering;
- * an adapter's only job is "turn this request into text + token counts".
+ * A provider adapter that can run a structured generation.
+ *
+ * The gateway owns caps, validation, retry and metering; an adapter's only job
+ * is "turn this request into text + token counts".
  *
  * Deliberately narrow: no streaming, no tools, no multi-turn. Prep makes
  * single-shot structured generations, and an interface that promised more than
  * the product uses would be speculative surface (CLAUDE.md: simplicity first).
  */
-export interface Provider {
+export interface CompletionProvider {
   /** For logs + the `model` column when a request never reaches the wire. */
   readonly name: string;
   complete(req: {
@@ -76,18 +78,16 @@ export interface Provider {
     /** Provider-side structured-output constraint, when the caller has one. */
     jsonSchema?: JsonSchema;
   }): Promise<ProviderResponse>;
+}
 
-  /**
-   * Turn text into a vector (Phase 4.5 RAG).
-   *
-   * Required, not optional, even though only one route uses it: an adapter that
-   * can complete but silently cannot embed would fail at runtime in the middle
-   * of a user's request. Making it part of the interface means "can this
-   * provider serve Prep?" is answered by the compiler.
-   *
-   * `dimensions` is passed in rather than assumed because the DB column is a
-   * fixed width — see the embedding-width note in 0007_resources.sql.
-   */
+/**
+ * A provider adapter that can turn text into a vector (Phase 4.5 RAG).
+ *
+ * `dimensions` is passed in rather than assumed because the DB column is a
+ * fixed width — see the embedding-width note in 0007_resources.sql.
+ */
+export interface EmbeddingProvider {
+  readonly name: string;
   embed(req: {
     model: string;
     input: string;
@@ -95,6 +95,29 @@ export interface Provider {
     dimensions: number;
   }): Promise<ProviderEmbedding>;
 }
+
+/**
+ * A provider that can serve EVERY tier Prep uses.
+ *
+ * Until Phase 6.1 this was the only provider type, and `embed()` was required
+ * rather than optional, with this reasoning attached: "an adapter that can
+ * complete but silently cannot embed would fail at runtime in the middle of a
+ * user's request. Making it part of the interface means 'can this provider
+ * serve Prep?' is answered by the compiler."
+ *
+ * That reasoning was right and is kept. What it got wrong was the granularity:
+ * it encoded "a provider is all-or-nothing", and the second provider falsified
+ * that. Groq serves both completion tiers well and has **no embeddings endpoint
+ * at all** (confirmed against its own models.list: 14 models, every one of them
+ * chat, speech or safety). So the capability is now split in two, and the
+ * compile-time guarantee survives — it just answers "which tiers can this
+ * provider serve?" instead of a yes/no the real world doesn't ask.
+ *
+ * Note this is the interface catching the problem, not failing to: a Groq
+ * adapter forced to declare an `embed()` it cannot perform is exactly the
+ * runtime failure the original note was written to prevent.
+ */
+export type Provider = CompletionProvider & EmbeddingProvider;
 
 /**
  * The tiny subset of JSON Schema this project actually sends to providers.

@@ -180,3 +180,68 @@ describe("summarize", () => {
     expect(JSON.stringify(rows)).toBe(snapshot);
   });
 });
+
+// --- Phase 6.1: mixing a non-caching provider into the same window ----------
+//
+// This block exists because of a bug that would have been invisible: both cache
+// metrics used to be computed over EVERY row, so the first Groq dispatch would
+// have started dragging Gemini's measured cache performance down without
+// anything on screen being obviously wrong. The number would have stayed
+// arithmetically correct and started meaning something else.
+
+const GPT_OSS = "openai/gpt-oss-120b";
+
+describe("summarize — cache metrics with a mixed provider window", () => {
+  it("excludes non-caching rows from the hit-rate denominator", () => {
+    const cached = row({ model: FLASH, input_tokens: 1000, cached_input_tokens: 250 });
+    const s = summarize([cached]);
+    expect(s.cacheHitRate).toBe(0.25);
+
+    // Add an equally large Groq dispatch. Naively this would halve the rate to
+    // 12.5% — but Groq has no prompt cache to miss, so it is not evidence about
+    // caching at all and must not appear in the denominator.
+    const mixed = summarize([cached, row({ model: GPT_OSS, input_tokens: 1000, cached_input_tokens: 0 })]);
+    expect(mixed.cacheHitRate).toBe(0.25);
+    expect(mixed.inputTokens).toBe(2000); // still counted everywhere else
+    expect(mixed.cacheCapableCalls).toBe(1);
+    expect(mixed.calls).toBe(2);
+  });
+
+  it("excludes non-caching rows from the saving RATIO but keeps them in totals", () => {
+    const geminiRow = row({
+      model: FLASH,
+      input_tokens: 1_000_000,
+      cached_input_tokens: 500_000,
+      output_tokens: 0,
+    });
+    const groqRow = row({ model: GPT_OSS, input_tokens: 1_000_000, cached_input_tokens: 0, output_tokens: 0 });
+
+    const alone = summarize([geminiRow]);
+    const mixed = summarize([geminiRow, groqRow]);
+
+    // The ratio is a statement about cache-capable spend and must not move.
+    expect(mixed.cacheSavingRatio).toBeCloseTo(alone.cacheSavingRatio!, 6);
+    // The absolute saving is unchanged too — a non-caching row contributes
+    // exactly 0 to it, because its cached and uncached projections are equal.
+    expect(mixed.cacheSavingUsd).toBeCloseTo(alone.cacheSavingUsd, 6);
+    // But its money is still real and still counted.
+    expect(mixed.projectedUsd).toBeGreaterThan(alone.projectedUsd);
+  });
+
+  it("reports null, not 0%, for a window with no cache-capable calls at all", () => {
+    // A Groq-only or mock-only window has nothing to say about cache hit-rate.
+    // "0%" would be a claim that caching was tried and failed.
+    const s = summarize([row({ model: GPT_OSS }), row({ model: GPT_OSS })]);
+    expect(s.calls).toBe(2);
+    expect(s.cacheCapableCalls).toBe(0);
+    expect(s.cacheHitRate).toBeNull();
+    expect(s.cacheSavingRatio).toBeNull();
+  });
+
+  it("still prices the open-weight models, so they never read as free", () => {
+    // ratesFor() returns zeros for an unknown model, which would show $0.00 on
+    // screen. The rate card entry is what stops a real charge reading as free.
+    const s = summarize([row({ model: GPT_OSS, input_tokens: 1_000_000, output_tokens: 1_000_000 })]);
+    expect(s.projectedUsd).toBeGreaterThan(0);
+  });
+});

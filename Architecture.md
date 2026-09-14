@@ -333,8 +333,13 @@ may WRITE it.** The service-role client is typed against only this table, so
 using it to bypass RLS elsewhere is a compile error, and `import "server-only"`
 makes leaking it into a client bundle a build failure.
 
-**`cost_usd` is what was actually charged — not the paid-tier projection.** On the
-v1 free tier it is `0` on every row. The projection ($/roadmap, cache saving) is
+**`cost_usd` is what was actually charged — not the paid-tier projection.** It is
+governed by `AI_BILLING_MODE`: on `free` it is written as `0`, on `paid` it is the
+computed cost. **Rows written before 2026-09-14 are `0` regardless**, because the
+account moved to Gemini's paid Tier 1 around 2026-08-06 while the flag still
+defaulted to `free` — two phases of dispatches recorded $0 while money was being
+charged. Nothing was lost (the projection recomputes the true figure from the token
+columns), but the column is only trustworthy from the date the flag was set. The projection ($/roadmap, cache saving) is
 derived at read time in `lib/ai/cost.ts` from the token columns × a rate card, for
 the same reason §4c derives roadmap status instead of storing it: a stored
 projection goes stale the moment the rate card or the model binding changes, and a
@@ -510,10 +515,17 @@ to Postgres, because a rejected insert would abandon a corpus backfill half-done
 (3) It writes `ai_usage` with `tier: 'embedding'`, which is what makes the true cost
 of grounding visible: **two metered calls per topic, not one.**
 
-`Provider.embed()` is **required**, not optional, even though one route uses it —
-an adapter that can complete but not embed would fail at runtime in the middle of a
+`embed()` was **required**, not optional, even though one route uses it — an
+adapter that can complete but not embed would fail at runtime in the middle of a
 user's request, and making it part of the interface turns "can this provider serve
 Prep?" into a compile-time question.
+
+**Phase 6.1 kept that reasoning and corrected its granularity.** It encoded *a
+provider is all-or-nothing*, which the second provider falsified: Groq has no
+embeddings endpoint at all. `Provider` is now `CompletionProvider &
+EmbeddingProvider`, so the compile-time question became "*which tiers* can this
+provider serve?" — and the embedding tier can never be routed to a provider that
+cannot embed. See §5d.
 
 **Why a union and not an exception.** An AI failure is a routine, expected branch
 here — Rule 9 says it must never hard-block a flow. Forcing every call site to
@@ -539,7 +551,9 @@ text + token counts). Two ship: `gemini` (raw `fetch`, no vendor SDK — Rule 7)
 local dev and the whole E2E suite so tests never depend on a third party's uptime).
 
 - **Tiers, not model names**, in product code. A config map binds each tier to a
-  concrete model. **v1 binding (settled 2026-07-28) — Google Gemini free tier:**
+  concrete model. **v1 binding (settled 2026-07-28) — Google Gemini, originally on
+  the free tier and on paid Tier 1 since ~2026-08-06; a second provider joined in
+  Phase 6.1, see §5d:**
   ```ts
   // lib/ai/config.ts  (the ONLY file naming concrete models)
   const MODELS = {
@@ -569,9 +583,12 @@ local dev and the whole E2E suite so tests never depend on a third party's uptim
   so the hit-rate is **measured, not assumed**. *Explicit `CachedContent` was
   considered and skipped: it carries minimum-token thresholds and TTL management for
   a scaffolding block of a few hundred tokens — cost without benefit at this size.*
-  On the v1 free tier the *dollar* saving is ~$0 (everything is free), so caching is
-  a **latency + token-efficiency** win here; the dollar saving becomes real at
-  paid-tier rates, which is how the cost readout frames it.
+  On the original free tier the *dollar* saving was ~$0 (everything was free), so
+  caching was a **latency + token-efficiency** win and the dollars were projected.
+  On paid Tier 1 the saving is real, though small at this traffic. Since Phase 6.1
+  the hit-rate is computed over **cache-capable rows only** — Groq does no prompt
+  caching, and letting its rows into the denominator would have made Gemini's
+  caching look like it regressed (§5d).
 - **Metering + cost readout:** every `complete()` **and** `embed()` call writes an
   `ai_usage` row (route, model, tokens, cost); caps are checked before dispatch. A
   small internal **cost readout** aggregates these into $/roadmap, per-call token
@@ -744,6 +761,92 @@ learn to ignore.
 | Roadmap content markers | Each topic row reports whether its detail exists and how grounded it is; each week header shows `n/total studied`. Fed by `detailSource:detail->>source` so the query extracts one string instead of the whole detail jsonb for every topic. Unknown values degrade to "no content". |
 | `globals.css` (Phase 5 block) | The app's only class-based rules — `:focus-visible`, skip link, `prefers-reduced-motion`, and the ≤860px breakpoint that turns the 244px sidebar into a top bar. Inline styles can express none of these three things. |
 
+## 5d. The second provider + failover (Phase 6.1)
+
+**What changed and what deliberately didn't.** No route, no screen and no product
+code changed. Rule 7's whole claim is that a provider is a config binding, and
+this phase is the test of it: a sibling adapter file, plus provider resolution in
+`gateway.ts`. That claim was previously an assertion; it is now a measurement.
+
+**The capability split.** `Provider` used to require both `complete()` and
+`embed()`, on the reasoning that "an adapter that can complete but silently
+cannot embed would fail at runtime in the middle of a user's request". Groq has
+**no embeddings endpoint at all** — verified against its own `models.list`, not a
+docs page — so that interface would have forced an adapter to declare a method it
+cannot perform, which is exactly the failure the rule was written to prevent. The
+type is now:
+
+```ts
+interface CompletionProvider { name: string; complete(…): Promise<ProviderResponse> }
+interface EmbeddingProvider  { name: string; embed(…):    Promise<ProviderEmbedding> }
+type Provider = CompletionProvider & EmbeddingProvider;   // gemini, mock
+```
+
+`createGroqProvider()` returns a `CompletionProvider`, so the embedding tier
+**cannot** be routed to Groq — the compiler enforces it rather than a comment.
+
+**Resolution.** `resolveCompletionChain(tier)` returns `[primary]` or
+`[primary, failover]`; `resolveEmbeddingProvider()` resolves separately and only
+ever to Gemini or mock.
+
+| Env | Result |
+|-----|--------|
+| `AI_PROVIDER=mock` | mock, **never fails over** (E2E determinism — see below) |
+| `AI_PROVIDER=groq` + `GROQ_API_KEY` | groq only; RAG degrades to ungrounded |
+| `AI_PROVIDER=groq`, no key | `none` — never a silent fall back to Gemini |
+| `GEMINI_API_KEY` (+ optional `GROQ_API_KEY`) | gemini, failing over to groq |
+| `GROQ_API_KEY` only | groq only |
+| `AI_FAILOVER=off` | failover disabled, pre-6.1 behaviour exactly |
+
+**The failover walk, and the three things it is careful about:**
+
+1. A provider error still does **not** retry the provider that just failed. That
+   argument was always about re-dispatching into the same outage; a *different*
+   provider is the one case where a second dispatch has a genuinely different
+   expected outcome.
+2. A **malformed** response does not fail over — it retries the same provider,
+   because malformed is non-deterministic on the same model and that is the whole
+   premise of Rule 9's retry.
+3. A failover spends a dispatch from the **same `MAX_ATTEMPTS` budget** a
+   malformed-retry would, and the loop re-checks the cap before each dispatch. So
+   one user action never costs more than `MAX_ATTEMPTS` calls however the failures
+   are mixed, and at `used = CAP-1` the failover is **refused** — Rule 3 outranks
+   resilience.
+
+**Why the mock never fails over.** The E2E suite drives Rule 9's outage path with
+`AI_MOCK_MODE=error`. A mock that quietly recovered on a real network provider
+would turn every one of those specs green for the wrong reason — an outage test
+that cannot produce an outage.
+
+**Tier bindings (`lib/ai/config.ts`, still the only file naming a model):**
+
+| Tier | Gemini (primary) | Groq (failover) |
+|------|------------------|-----------------|
+| `reasoning` | `gemini-3.5-flash` | `openai/gpt-oss-120b` |
+| `classification` | `gemini-3.5-flash-lite` | `openai/gpt-oss-20b` |
+| `embedding` | `gemini-embedding-001` | *(none — cannot embed)* |
+
+**Two measured facts that shaped the adapter**, both from live probes rather than
+documentation:
+
+- **`reasoning_effort: 'low'`.** gpt-oss bills invisible chain-of-thought. At
+  default effort, 1124 of a roadmap's 1498 completion tokens were reasoning. All
+  four effort settings pass the real `validateRoadmap()`, so the cheapest wins:
+  `low` is 11% reasoning and 2.2s against `high`'s 84% and 6.3s.
+- **No prompt caching.** Groq's `usage` has no cached-token field. Its rate-card
+  entries therefore set `cachedInputPerM === inputPerM` — encoding "no discount
+  exists", not "cached tokens are free" — and `cost.ts` reads that equality to
+  exclude those rows from the cache **ratios**. Mixing a structurally non-caching
+  provider into the old global denominator would have made Gemini's caching look
+  like it regressed while the arithmetic stayed correct. The absolute
+  `cacheSavingUsd` stays global and is still right, because a non-caching row
+  contributes exactly 0 to it.
+
+**Cost, stated honestly.** gpt-oss-120b is $0.15/$0.60 per M against
+gemini-3.5-flash's $1.50/$9.00 — 15x cheaper on output, the expensive line item.
+That makes a cost reduction a lever this project now *has*; it is not a saving it
+has *claimed*, and the two must not be conflated on a résumé.
+
 ## 6. Auth & security
 
 - Supabase Auth (email/password + Google OAuth).
@@ -766,4 +869,7 @@ learn to ignore.
 - **Vercel** for the Next.js app (free tier at MVP traffic).
 - **Supabase** managed Postgres + Auth (free tier).
 - Env: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (client), `SUPABASE_SERVICE_ROLE_KEY`
-  + AI provider key (server-only). Spend cap configured in the chosen provider console.
+  + AI provider keys (server-only): `GEMINI_API_KEY`, and since Phase 6.1
+  `GROQ_API_KEY` for the failover. Spend cap configured in the chosen provider
+  console. Behaviour switches: `AI_PROVIDER` (`mock` | `groq`), `AI_FAILOVER=off`,
+  `AI_BILLING_MODE` (`free` | `paid`), `AI_DAILY_CALL_CAP`, `RAG_MIN_SIMILARITY`.

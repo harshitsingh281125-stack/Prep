@@ -42,6 +42,29 @@ function ratesFor(model: string): ModelRates {
 }
 
 /**
+ * Whether this model's provider does prompt caching at all (Phase 6.1).
+ *
+ * DERIVED FROM THE RATE CARD rather than a separate flag, on purpose: a boolean
+ * sitting beside the prices is a second source of truth that can disagree with
+ * them, and the prices are the thing that has to be right anyway. A model with
+ * no cache discount has cachedInputPerM === inputPerM — which is exactly how the
+ * Groq entries are written, and what "no cache discount exists" means.
+ *
+ * This matters because of a metric bug it prevents. cacheHitRate and
+ * cacheSavingRatio used to be computed over EVERY row. The moment a
+ * structurally non-caching provider started writing rows (Groq reports no
+ * cached-token field at all), its input tokens would have landed in the
+ * denominator with nothing in the numerator, dragging the rate toward zero and
+ * making Gemini's prompt caching look like it had regressed. The number would
+ * still have been arithmetically correct and completely misleading — the worst
+ * kind, on a screen whose whole point is not overstating things.
+ */
+export function cachesPrompts(model: string): boolean {
+  const r = ratesFor(model);
+  return r.cachedInputPerM < r.inputPerM;
+}
+
+/**
  * What one dispatch costs at the model's rate card.
  *
  * `cachedInputTokens` is a SUBSET of `inputTokens`, so the fresh input is the
@@ -96,7 +119,13 @@ export type UsageSummary = {
   cacheSavingUsd: number;
   /** cacheSaving / projectedWithoutCache, 0..1. null when nothing was spent. */
   cacheSavingRatio: number | null;
-  /** cachedInputTokens / inputTokens, 0..1. null when no input tokens yet. */
+  /** How many of `calls` ran on a model whose provider caches prompts at all. */
+  cacheCapableCalls: number;
+  /**
+   * cachedInputTokens / inputTokens over CACHE-CAPABLE rows only, 0..1.
+   * null when no cache-capable call has been made yet — which is the honest
+   * reading for a mock-only or Groq-only window, not a 0% hit rate.
+   */
   cacheHitRate: number | null;
   /** Projected cost of every roadmap-generation dispatch ÷ roadmaps produced. */
   costPerRoadmapUsd: number | null;
@@ -132,6 +161,7 @@ export function summarize(rows: UsageRow[]): UsageSummary {
     projectedWithoutCacheUsd: 0,
     cacheSavingUsd: 0,
     cacheSavingRatio: null,
+    cacheCapableCalls: 0,
     cacheHitRate: null,
     costPerRoadmapUsd: null,
     perRoute: [],
@@ -140,6 +170,12 @@ export function summarize(rows: UsageRow[]): UsageSummary {
   const byRoute = new Map<string, RouteSummary>();
   let roadmapProjected = 0;
   let roadmapsProduced = 0;
+  // Cache metrics are computed over this subset, not over every row — see
+  // cachesPrompts() above for why mixing providers would otherwise lie.
+  let capableInput = 0;
+  let capableCached = 0;
+  let capableProjected = 0;
+  let capableProjectedWithoutCache = 0;
 
   for (const row of rows) {
     const usage: Usage = {
@@ -160,7 +196,16 @@ export function summarize(rows: UsageRow[]): UsageSummary {
     s.cachedInputTokens += row.cached_input_tokens;
     s.actualUsd += Number(row.cost_usd) || 0;
     s.projectedUsd += projected;
-    s.projectedWithoutCacheUsd += costWithoutCacheUsd(row.model, usage);
+    const projectedWithoutCache = costWithoutCacheUsd(row.model, usage);
+    s.projectedWithoutCacheUsd += projectedWithoutCache;
+
+    if (cachesPrompts(row.model)) {
+      s.cacheCapableCalls += 1;
+      capableInput += row.input_tokens;
+      capableCached += row.cached_input_tokens;
+      capableProjected += projected;
+      capableProjectedWithoutCache += projectedWithoutCache;
+    }
 
     const r = byRoute.get(row.route) ?? {
       route: row.route,
@@ -184,13 +229,16 @@ export function summarize(rows: UsageRow[]): UsageSummary {
   s.actualUsd = round6(s.actualUsd);
   s.projectedUsd = round6(s.projectedUsd);
   s.projectedWithoutCacheUsd = round6(s.projectedWithoutCacheUsd);
+  // The absolute saving stays global and is still correct: a non-caching row has
+  // projectedWithoutCache === projected, so it contributes exactly 0 to it. Only
+  // the RATIOS needed narrowing, because only they have a denominator that a
+  // non-caching row can inflate.
   s.cacheSavingUsd = round6(s.projectedWithoutCacheUsd - s.projectedUsd);
   s.cacheSavingRatio =
-    s.projectedWithoutCacheUsd > 0
-      ? round6(s.cacheSavingUsd / s.projectedWithoutCacheUsd)
+    capableProjectedWithoutCache > 0
+      ? round6((capableProjectedWithoutCache - capableProjected) / capableProjectedWithoutCache)
       : null;
-  s.cacheHitRate =
-    s.inputTokens > 0 ? round6(s.cachedInputTokens / s.inputTokens) : null;
+  s.cacheHitRate = capableInput > 0 ? round6(capableCached / capableInput) : null;
   s.costPerRoadmapUsd =
     roadmapsProduced > 0 ? round6(roadmapProjected / roadmapsProduced) : null;
   s.perRoute = [...byRoute.values()].sort((a, b) => b.calls - a.calls);

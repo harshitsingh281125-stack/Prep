@@ -31,7 +31,11 @@ Full context lives in these docs — **read them before non-trivial work**:
 - **AI:** provider-agnostic **AI Gateway** (`lib/ai/gateway.ts`). Product code calls
   `complete({ tier: 'reasoning' | 'classification', … })` — never a vendor SDK.
   **v1 = Google Gemini (settled 2026-07-28, live since Phase 4)**, bound in
-  `lib/ai/config.ts` — the only file naming a model.
+  `lib/ai/config.ts` — the only file naming a model. **Since Phase 6.1 there is a
+  second provider:** Groq / open-weight gpt-oss, as a manual switch
+  (`AI_PROVIDER=groq`) and an automatic failover. Groq cannot embed, so the
+  embedding tier always resolves to Gemini — `Provider` is split into
+  `CompletionProvider` + `EmbeddingProvider` and the compiler enforces it.
 - **Hosting:** Vercel.
 
 ## Non-negotiable rules (see Rules.md for the full 27)
@@ -74,13 +78,23 @@ Full context lives in these docs — **read them before non-trivial work**:
   **no per-case ledger was kept** for that one; Phase 5 closed 2026-09-02 — Vitest
   248/248, E2E 81/81, manual matrix run by the owner **with a per-case ledger of
   what was and wasn't exercised recorded in phases.md**, and three of the skipped
-  groups converted into automation rather than written off); **v1 is feature-complete
-  — Phase 6 is the v2 backlog and is explicitly not started.**
-- **AI is live.** All generation goes through `lib/ai/gateway.ts`; `lib/ai/config.ts`
-  is the only file naming a model (`gemini-3.5-flash` / `gemini-3.5-flash-lite`).
+  groups converted into automation rather than written off); **v1 is feature-complete.**
+  **Phase 6.1 (second AI provider + failover) is code-complete with its QA gate still
+  OPEN** — build clean, Vitest 283/283, E2E 81/81, but the manual matrix
+  (`tests/phase-6.1-groq-provider.md`, 42 cases / 8 suites) **has not been run**, so
+  the phase is NOT demoable yet (Rule 24/27). The rest of Phase 6 is the v2 backlog
+  and is explicitly not started.
+- **AI is live, on a PAID tier.** All generation goes through `lib/ai/gateway.ts`;
+  `lib/ai/config.ts` is the only file naming a model (`gemini-3.5-flash` /
+  `gemini-3.5-flash-lite`, failing over to `openai/gpt-oss-120b` / `-20b`).
   Daily cap 25/user (`AI_DAILY_CALL_CAP` overrides). **`AI_PROVIDER=mock` gives a
   deterministic offline provider** with `AI_MOCK_MODE=ok|malformed|malformed-once|error`
-  for exercising the Rule 9 paths — the E2E suite runs on it, on port 3101.
+  for exercising the Rule 9 paths — the E2E suite runs on it, on port 3101, and
+  **mock never fails over** so an injected outage stays an outage.
+  `AI_PROVIDER=groq` forces the second provider; `AI_FAILOVER=off` restores
+  pre-6.1 behaviour. **`AI_BILLING_MODE=paid` must stay set** — the Gemini account
+  is on Tier 1, and the default (`free`) silently records `cost_usd = 0` on every
+  row while real money is charged (that drift ran for two phases; see memory.md).
   Next.js reads env only at startup: **restart the dev server after any change.**
 - **RAG corpus upkeep (Phase 4.5).** Topic resources are grounded on a curated
   `resources` corpus (202 docs / 26 areas). Coverage is a *maintained* property, not

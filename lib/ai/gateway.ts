@@ -29,17 +29,23 @@ import {
   MAX_ATTEMPTS,
   MODELS,
   billingMode,
+  completionModelFor,
+  failoverFor,
   providerName,
+  type ProviderName,
 } from "./config";
 import { costUsd } from "./cost";
 import { RETRY_NUDGE } from "./prompts";
 import { createGeminiProvider } from "./providers/gemini";
+import { createGroqProvider } from "./providers/groq";
 import { createMockProvider } from "./providers/mock";
 import {
   EMPTY_USAGE,
   type CompleteResult,
   type EmbedPurpose,
   type EmbedResult,
+  type CompletionProvider,
+  type EmbeddingProvider,
   type JsonSchema,
   type Provider,
   type Tier,
@@ -60,10 +66,19 @@ export type MeterRow = {
   latencyMs: number;
 };
 
+/** One link in the dispatch chain: an adapter and the model id it bills against. */
+export type Link = { provider: CompletionProvider; model: string };
+
 export type GatewayDeps = {
   provider: Provider | null;
   /** Model id to bill/report against; defaults to the tier binding. */
   model: string;
+  /**
+   * Phase 6.1: the whole dispatch chain — [primary, failover] — overriding
+   * `provider`/`model`. Kept separate from `provider` so every pre-6.1 test that
+   * injects a single fake still compiles and still means what it meant.
+   */
+  chain: Link[];
   /** Calls this user has already dispatched since midnight UTC. */
   countToday: (userId: string) => Promise<number>;
   meter: (row: MeterRow) => Promise<void>;
@@ -84,7 +99,50 @@ export type CompleteOptions<T> = {
 
 // --- provider + metering wiring (the real, non-injected implementations) ----
 
-function resolveProvider(): Provider | null {
+function adapterFor(name: ProviderName): Provider | CompletionProvider | null {
+  if (name === "mock") return createMockProvider();
+  if (name === "gemini") return createGeminiProvider(process.env.GEMINI_API_KEY!);
+  if (name === "groq") return createGroqProvider(process.env.GROQ_API_KEY!);
+  return null;
+}
+
+/**
+ * The completion dispatch chain: the primary, then whoever takes over if the
+ * primary's request fails outright (Phase 6.1).
+ *
+ * The chain is at most two long, and that is a cap decision rather than a
+ * plumbing limit — see the walk in complete(), where a failover spends one of
+ * the same MAX_ATTEMPTS dispatches a malformed-retry would.
+ */
+function resolveCompletionChain(tier: Exclude<Tier, "embedding">): Link[] {
+  const primaryName = providerName();
+  const primary = adapterFor(primaryName);
+  if (!primary) return [];
+
+  const chain: Link[] = [
+    { provider: primary, model: completionModelFor(primaryName, tier) },
+  ];
+
+  const backupName = failoverFor(primaryName);
+  if (backupName) {
+    const backup = adapterFor(backupName);
+    if (backup) {
+      chain.push({ provider: backup, model: completionModelFor(backupName, tier) });
+    }
+  }
+  return chain;
+}
+
+/**
+ * The embedding provider, resolved separately from the completion chain.
+ *
+ * Groq is deliberately absent: it has no embeddings endpoint, and since Phase
+ * 6.1 the type system knows that (createGroqProvider returns a
+ * CompletionProvider, which has no embed to call). A Groq-only deployment
+ * therefore embeds nothing, gets `disabled`, and RAG degrades to the ungrounded
+ * generation path — the honest outcome, and the one Rule 9 already describes.
+ */
+function resolveEmbeddingProvider(): EmbeddingProvider | null {
   const name = providerName();
   if (name === "mock") return createMockProvider();
   if (name === "gemini") return createGeminiProvider(process.env.GEMINI_API_KEY!);
@@ -169,19 +227,36 @@ export async function complete<T>(
   opts: CompleteOptions<T>,
   deps: Partial<GatewayDeps> = {}
 ): Promise<CompleteResult<T>> {
-  const provider = deps.provider !== undefined ? deps.provider : resolveProvider();
-  const model = deps.model ?? (provider?.name === "mock" ? "mock" : MODELS[opts.tier]);
+  const chain: Link[] =
+    deps.chain ??
+    (deps.provider !== undefined
+      ? deps.provider
+        ? [
+            {
+              provider: deps.provider,
+              model:
+                deps.model ??
+                (deps.provider.name === "mock" ? "mock" : MODELS[opts.tier]),
+            },
+          ]
+        : []
+      : resolveCompletionChain(opts.tier));
   const countToday = deps.countToday ?? countTodayFromDb;
   const meter = deps.meter ?? meterToDb;
 
   // No provider configured at all — local dev with AI switched off. Nothing is
   // metered because nothing was dispatched.
-  if (!provider) return { ok: false, reason: "disabled", attempts: 0 };
+  if (chain.length === 0) return { ok: false, reason: "disabled", attempts: 0 };
 
   // Rule 3: the cap is checked BEFORE the call, not enforced by noticing
   // afterwards that we went over.
   const used = await countToday(opts.userId);
   if (used >= DAILY_CALL_CAP) return { ok: false, reason: "cap", attempts: 0 };
+
+  // Which link of the chain the NEXT dispatch goes to. Only a provider-side
+  // failure advances it; a malformed response retries the same provider, because
+  // malformed is the failure that provider was going to be retried for anyway.
+  let link = 0;
 
   let attempt = 0;
   while (attempt < MAX_ATTEMPTS) {
@@ -194,6 +269,7 @@ export async function complete<T>(
     attempt += 1;
 
     const startedAt = Date.now();
+    const { provider, model } = chain[link];
     let text: string;
     let usage: Usage;
 
@@ -210,10 +286,11 @@ export async function complete<T>(
       text = res.text;
       usage = res.usage;
     } catch {
-      // A provider error is NOT retried. Rule 9's retry is specifically
-      // retry-on-malformed; re-dispatching into an outage just spends a second
-      // call from the user's cap to fail the same way. Still metered: the
-      // provider counted that request even though we got nothing back.
+      // A provider error is NOT retried ON THE SAME PROVIDER. Rule 9's retry is
+      // specifically retry-on-malformed; re-dispatching into an outage just
+      // spends a second call from the user's cap to fail the same way. Still
+      // metered: the provider counted that request even though we got nothing
+      // back.
       await safeMeter(meter, {
         userId: opts.userId,
         route: opts.route,
@@ -224,6 +301,21 @@ export async function complete<T>(
         attempts: attempt,
         latencyMs: Date.now() - startedAt,
       });
+
+      // Phase 6.1 — FAILOVER. Note this does not contradict the paragraph above:
+      // "don't re-dispatch into an outage" is an argument about retrying the
+      // provider that just failed, and a different provider is not that. It is
+      // the one case where a second dispatch has a genuinely different expected
+      // outcome instead of the same one.
+      //
+      // It spends a dispatch from the SAME MAX_ATTEMPTS budget a malformed-retry
+      // would, so one user action can never cost more than MAX_ATTEMPTS calls of
+      // their daily cap however the failures are mixed — and the loop's cap
+      // re-check at the top guards the boundary before the next dispatch.
+      if (link + 1 < chain.length) {
+        link += 1;
+        continue;
+      }
       return { ok: false, reason: "provider", attempts: attempt };
     }
 
@@ -289,7 +381,8 @@ export async function embed(
   opts: EmbedOptions,
   deps: Partial<GatewayDeps> = {}
 ): Promise<EmbedResult> {
-  const provider = deps.provider !== undefined ? deps.provider : resolveProvider();
+  const provider =
+    deps.provider !== undefined ? deps.provider : resolveEmbeddingProvider();
   const model = deps.model ?? (provider?.name === "mock" ? "mock" : MODELS.embedding);
   const countToday = deps.countToday ?? countTodayFromDb;
   const meter = deps.meter ?? meterToDb;

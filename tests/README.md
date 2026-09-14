@@ -5,7 +5,7 @@ E2E what a unit test proves faster).
 
 | Layer | Runner | Covers | Files |
 |-------|--------------|--------|-------|
-| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering; RAG grounding validator + retrieval query + `embed()`; **print recall-schedule bucketing + the role/track/mismatch table** | `tests/unit/*.test.ts` |
+| **Unit** | Vitest | Seed generator slice/reorder/pad/defaults (OB-08/09/10); recall scheduler ladder/ease/reset/DST; progress pace/status/attribution/trend; AI schema validation, cost/projection maths, gateway cap+retry+metering; RAG grounding validator + retrieval query + `embed()`; print recall-schedule bucketing + the role/track/mismatch table; **Groq schema translation + failover routing policy + the cache-capable metric split** | `tests/unit/*.test.ts` |
 | **E2E** | Playwright | P0 security/RLS/mastery/cascade + recall grade round-trip + session logging + AI auth/ownership/fallback/`ai_usage` RLS + both RAG branches and corpus RLS + **the print route's security surface and the backend role** (needs real session + DB) | `tests/e2e/*.spec.ts` |
 | **Manual** | You | Feel/timing/theme/visual, multi-day scheduling, elapsed-time pace behaviour, the real AI provider, whether retrieval retrieves the RIGHT documents, **and what the export actually looks like on paper** | `tests/phase-<n>-*.md` |
 
@@ -15,11 +15,16 @@ Manual matrices, one per phase:
 [phase-4.5-rag.md](./phase-4.5-rag.md) · [phase-5-print-polish.md](./phase-5-print-polish.md).
 The automated suites cover the highest-value subset; everything else stays manual.
 
-**Current counts:** Vitest **248** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
-+ 53 progress + 25 ai-validate + 18 ai-cost + 20 ai-gateway + 16 ai-embed + 29 rag
-+ 16 print-schedule + 17 catalog-track + 5 detail-source) · Playwright **81** (10
-Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 11 print/role + 1 content
-marker + 5 responsive), all green as of 2026-09-02.
+**Current counts:** Vitest **283** (6 seed + 6 seed-detail + 19 answers + 18 scheduler
++ 53 progress + 25 ai-validate + 22 ai-cost + 28 ai-gateway + 16 ai-embed + 29 rag
++ 16 print-schedule + 17 catalog-track + 5 detail-source + 23 ai-groq) · Playwright
+**81** (10 Phase 1 + 8 recall + 13 sessions + 20 AI + 13 RAG + 11 print/role + 1
+content marker + 5 responsive), all green as of 2026-09-14.
+
+Phase 6.1 added 35 unit tests and no E2E: the failover path needs two live
+providers, and the mock deliberately refuses to fail over, so there is nothing an
+E2E server could exercise. Its logic is unit-tested against fake providers and its
+live behaviour is manual suite **FO** in `tests/phase-6.1-groq-provider.md`.
 
 **Two Phase 5 suites exist because a manual case got skipped.** `responsive.spec.ts`
 and the `ROLE-*R` cases in `print.spec.ts` automate the mechanically-decidable half

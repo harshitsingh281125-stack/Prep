@@ -43,6 +43,47 @@ export const MODELS: Record<Tier, string> = {
  * embedding of the wrong width rather than letting Postgres reject the insert
  * halfway through a backfill.
  */
+/**
+ * The FAILOVER provider's tier bindings (Phase 6.1).
+ *
+ * Open-weight models (OpenAI's gpt-oss release) on Groq. Same principle as the
+ * Gemini map above — the pricier model on the rare call — and the ids were
+ * confirmed against Groq's live models.list before a line of adapter code was
+ * written, exactly as the Gemini ids were.
+ *
+ * There is no embedding entry, and that absence is load-bearing: Groq has no
+ * embeddings endpoint at all, which is why `Provider` was split by capability
+ * in ../types.ts. The embedding tier always resolves to Gemini.
+ */
+export const GROQ_MODELS: Record<Exclude<Tier, "embedding">, string> = {
+  reasoning: "openai/gpt-oss-120b",
+  classification: "openai/gpt-oss-20b",
+};
+
+/**
+ * How hard gpt-oss is allowed to think. MEASURED, not picked.
+ *
+ * gpt-oss is a REASONING model: it emits chain-of-thought tokens you are billed
+ * for and never see. On the first probe, 1124 of a roadmap's 1498 completion
+ * tokens were invisible. So all four settings were run against the REAL
+ * ROADMAP_SCHEMA and the REAL validateRoadmap() (2026-09-14):
+ *
+ *   effort     completion   reasoning        visible   latency   validator
+ *   low               675    71  (11%)           604      2.2s   PASS
+ *   medium            948   551  (58%)           397      2.4s   PASS
+ *   high            2,763 2,313  (84%)           450      6.3s   PASS
+ *   (default)       1,121   736  (66%)           385      2.8s   PASS
+ *
+ * ALL FOUR PASS. 'high' spends 4x the output tokens and 3x the latency for no
+ * measurable gain on this task, and output tokens are the expensive line item.
+ * So the cheapest setting that passes is the setting — the same reasoning that
+ * put the cheap model on the frequent call above.
+ *
+ * Re-measure if the prompt or the schema changes; this is a property of the
+ * model-and-task pair, like DEFAULT_RAG_MIN_SIMILARITY is of model-and-corpus.
+ */
+export const GROQ_REASONING_EFFORT = "low";
+
 export const EMBEDDING_DIM = 1536;
 
 /**
@@ -177,6 +218,12 @@ export const PRICING: Record<string, ModelRates> = {
   "gemini-2.5-flash": { inputPerM: 0.3, cachedInputPerM: 0.03, outputPerM: 2.5 },
   "gemini-2.5-flash-lite": { inputPerM: 0.1, cachedInputPerM: 0.01, outputPerM: 0.4 },
   "gemini-embedding-001": { inputPerM: 0.15, cachedInputPerM: 0.15, outputPerM: 0 },
+  // Groq's open-weight tier (Phase 6.1), from Groq's published pricing 2026-09-14.
+  // cachedInputPerM EQUALS inputPerM on purpose: Groq does no prompt caching, so
+  // this encodes "no cache discount exists" rather than "cached tokens are free".
+  // cost.ts reads that equality as the definition of a non-caching model.
+  "openai/gpt-oss-120b": { inputPerM: 0.15, cachedInputPerM: 0.15, outputPerM: 0.6 },
+  "openai/gpt-oss-20b": { inputPerM: 0.075, cachedInputPerM: 0.075, outputPerM: 0.3 },
   // The mock adapter is priced at zero: it never touches a provider, so counting
   // it as spend would pollute the readout with fictional cost.
   mock: { inputPerM: 0, cachedInputPerM: 0, outputPerM: 0 },
@@ -204,9 +251,63 @@ export function billingMode(): "free" | "paid" {
  * With no key configured at all we report 'none', and every generation takes the
  * seeded fallback path — the app stays completely usable (Rule 9).
  */
-export function providerName(): "gemini" | "mock" | "none" {
+export type ProviderName = "gemini" | "groq" | "mock" | "none";
+
+export function providerName(): ProviderName {
   if (process.env.AI_PROVIDER === "mock") return "mock";
-  return process.env.GEMINI_API_KEY ? "gemini" : "none";
+  // An explicit AI_PROVIDER=groq is honoured only if the key is actually there.
+  // Silently falling back to Gemini when someone asked for Groq would make an
+  // A/B comparison quietly compare a model against itself.
+  if (process.env.AI_PROVIDER === "groq") {
+    return process.env.GROQ_API_KEY ? "groq" : "none";
+  }
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  // Groq-only is a valid deployment (no Gemini key at all). RAG degrades to the
+  // ungrounded path there, because nothing can embed — see failoverFor() below.
+  if (process.env.GROQ_API_KEY) return "groq";
+  return "none";
+}
+
+/**
+ * Which provider takes over when the primary's dispatch fails (Phase 6.1).
+ *
+ * Returns null when there is nobody to fail over to — and two of those nulls
+ * are deliberate policy, not missing configuration:
+ *
+ *   1. THE MOCK PROVIDER NEVER FAILS OVER. This is the important one. The E2E
+ *      suite drives the Rule 9 paths with AI_MOCK_MODE=error, and a mock that
+ *      quietly recovered on a real network provider would turn every one of
+ *      those specs green for the wrong reason — an outage test that cannot
+ *      produce an outage. Determinism is the mock's whole job.
+ *   2. Groq does not fail over to Gemini. The chain is one deep on purpose:
+ *      a generation is capped at MAX_ATTEMPTS dispatches (see below), so a
+ *      longer chain could not be walked without spending more of the user's
+ *      daily quota on a single action than the cap intends.
+ *
+ * AI_FAILOVER=off disables it outright, which is what the QA matrix uses to
+ * prove the primary-only path still behaves as it did before this phase.
+ */
+export function failoverFor(primary: ProviderName): ProviderName | null {
+  if (process.env.AI_FAILOVER === "off") return null;
+  if (primary !== "gemini") return null;
+  return process.env.GROQ_API_KEY ? "groq" : null;
+}
+
+/**
+ * The model id this provider uses for a completion tier.
+ *
+ * Note the narrow signature: there is no (provider, 'embedding') case to get
+ * wrong, because the embedding tier is not a thing a caller chooses a provider
+ * for — it always resolves to MODELS.embedding. An impossible branch that throws
+ * is still a branch someone has to reason about.
+ */
+export function completionModelFor(
+  provider: ProviderName,
+  tier: Exclude<Tier, "embedding">
+): string {
+  if (provider === "mock") return "mock";
+  if (provider === "groq") return GROQ_MODELS[tier];
+  return MODELS[tier];
 }
 
 /**
