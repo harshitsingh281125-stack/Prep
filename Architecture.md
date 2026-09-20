@@ -842,6 +842,12 @@ documentation:
   `cacheSavingUsd` stays global and is still right, because a non-caching row
   contributes exactly 0 to it.
 
+**The failover's real ceiling.** The Groq key is on the **free tier**, where the
+binding limit is **8,000 tokens per minute** — not the 1,000 requests/day — read
+from the live `x-ratelimit-*` headers. At `reasoning_effort: 'low'` that is ~5
+roadmap generations per minute. Ample for a path only reached when Gemini fails;
+it would be tight as a primary.
+
 **Cost, stated honestly.** gpt-oss-120b is $0.15/$0.60 per M against
 gemini-3.5-flash's $1.50/$9.00 — 15x cheaper on output, the expensive line item.
 That makes a cost reduction a lever this project now *has*; it is not a saving it

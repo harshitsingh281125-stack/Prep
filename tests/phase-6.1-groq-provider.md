@@ -172,3 +172,59 @@ UI:   01 __  02 __  03 __
 Fails / notes:
 Skipped (and why):
 ```
+
+---
+
+## Manual pass — ledger (2026-09-20)
+
+Recorded per-suite rather than as a total, because "42/42" over an assumption is
+the thing Phase 4.5 got wrong and Phase 5 fixed.
+
+**Preconditions confirmed by the owner:** `AI_BILLING_MODE=paid` set and the dev
+server restarted. Groq console reports **free tier** — which is why the measured
+`x-ratelimit-limit-tokens: 8000` (tokens per *minute*) is the real ceiling on the
+failover path, not the 1,000 requests/day.
+
+| Suite | Cases | Status |
+|---|---|---|
+| GRQ | 7 | **Pass** — run case-by-case by the owner |
+| EMB | 4 | **Pass** — run case-by-case by the owner |
+| FO | 9 | **Pass** — run case-by-case by the owner |
+| MET | 5 | **Pass** — run case-by-case by the owner |
+| UI | 3 | **Pass** — run case-by-case by the owner |
+| SEC | 5 | **Covered, not hand-run** — see below |
+| BILL | 4 | **NOT RUN** |
+| CFG | 5 | **NOT RUN** |
+
+### SEC — resolved without a manual pass, and how
+
+Not written off; each case has evidence:
+
+- **SEC-01 / SEC-03** (key never reaches the browser) — verified this session:
+  `grep -rlE 'gsk_[A-Za-z0-9]{10}|AIza[A-Za-z0-9]{10}' .next/static` is clean
+  against a fresh production build. SEC-01's DevTools walk and SEC-03's grep rest
+  on the same evidence; the grep is the stronger form.
+- **SEC-02** (no unauthenticated AI route) — automated: E2E `ai.spec.ts` suite
+  **AI-A**, four route assertions, green in the 81/81 run.
+- **SEC-04** (cross-user `ai_usage`) — automated: E2E **AI-20**, "User B cannot
+  read User A's `ai_usage` rows", green in the same run.
+- **SEC-05** (nothing secret staged) — verified: no `.env*` file is tracked, and
+  the pre-commit scan of staged content matched only the literal `"gsk_test"`
+  fixtures in `tests/unit/ai-groq.test.ts`.
+
+### Still outstanding — 9 cases, of which 2 actually matter
+
+**BILL-01 and CFG-04 cannot be inferred from anything else and are ~2 minutes each.**
+
+- **BILL-01** — `AI_BILLING_MODE=paid` was set *in response to this phase* and
+  nothing has confirmed it took effect. Until a dispatch is checked, "the billing
+  column is honest again" is an intention, not a fact. (Attempted via Supabase MCP
+  this session: unauthorized in that shell, so it needs a human on `/usage`.)
+- **CFG-04** — the stop-the-line case. If the mock provider *does* recover via
+  Groq under `AI_MOCK_MODE=error`, then every Rule 9 E2E spec is green for the
+  wrong reason and the 81/81 figure above stops meaning what it says.
+
+The other seven are lower-stakes: **BILL-02/03/04** are reporting nuances, and
+**CFG-01/02/03/05** are env permutations whose *policy* is exhaustively unit-tested
+(12 cases in `ai-groq.test.ts` covering `providerName()` precedence and
+`failoverFor()`), leaving only the integration unproven.

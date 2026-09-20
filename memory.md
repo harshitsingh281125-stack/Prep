@@ -12,6 +12,31 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-09-20 · Phase 6.1 QA: the failover runs on Groq's FREE tier, and its real
+  ceiling is TOKENS PER MINUTE, not requests per day.** Confirmed in the console.
+  The numbers came from the live `x-ratelimit-*` response headers rather than the
+  blog posts I'd quoted earlier: 1,000 requests, but **8,000 tokens/minute** — four
+  roadmap generations left 1,679 of that budget. At `reasoning_effort: 'low'` a
+  roadmap is ~1,430 tokens, so ~5 generations/minute. **Why this is fine:** Groq is
+  the *failover*, reached only when Gemini's dispatch fails, so the ceiling is
+  measured against outage traffic and not normal traffic. It would be tight as a
+  primary. Same lesson as the Phase 4 infra entry, applied a second time: a
+  dashboard that says "Free" is a claim, a response header is evidence.
+
+- **2026-09-20 · Phase 6.1 QA gate: closed the SEC suite WITHOUT a manual run, with
+  per-case evidence — and left BILL/CFG honestly open rather than rounding up.**
+  The owner hand-ran GRQ/EMB/FO/MET/UI (28 cases, all pass) and did not run
+  BILL/CFG. Instead of recording "42/42", the five SEC cases were each resolved
+  against something checkable: a key grep over a fresh `.next/static` (SEC-01/03),
+  existing green E2E suites AI-A and AI-20 (SEC-02/04), and the tracked-file +
+  staged-content scan (SEC-05). **Why it's written this way:** Phase 4.5 was closed
+  on "owner reported a pass" with no per-case ledger and that gap is still recorded
+  as a weakness; Phase 5 fixed it by writing down what was and wasn't exercised.
+  Nine cases remain open, and only two of them can't be inferred from unit tests —
+  BILL-01 (nothing has confirmed `AI_BILLING_MODE=paid` took effect) and CFG-04 (if
+  the mock CAN recover via Groq, the 81/81 E2E figure stops meaning what it says).
+  The phase is **not** marked DONE on 33/42.
+
 - **2026-09-14 · Phase 6.1: a SECOND provider (Groq / open-weight gpt-oss), as both
   a manual switch and an automatic failover — and the honest reason is resilience,
   not cost.** The question that started it was "can we use open-source models that

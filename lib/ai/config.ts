@@ -54,6 +54,13 @@ export const MODELS: Record<Tier, string> = {
  * There is no embedding entry, and that absence is load-bearing: Groq has no
  * embeddings endpoint at all, which is why `Provider` was split by capability
  * in ../types.ts. The embedding tier always resolves to Gemini.
+ *
+ * The key is on Groq's FREE tier (confirmed in the console 2026-09-20), and the
+ * binding constraint there is NOT the daily request count. Read from the live
+ * `x-ratelimit-*` response headers rather than a docs page: 1,000 requests but
+ * **8,000 tokens per MINUTE** — four roadmap generations left 1,679 of that
+ * budget. At `reasoning_effort: 'low'` a roadmap is ~1,430 tokens, i.e. ~5
+ * generations/minute. Ample for a failover path; it would be tight as primary.
  */
 export const GROQ_MODELS: Record<Exclude<Tier, "embedding">, string> = {
   reasoning: "openai/gpt-oss-120b",

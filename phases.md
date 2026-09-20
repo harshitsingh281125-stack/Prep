@@ -327,10 +327,26 @@ different model".
   errored Gemini dispatch followed by a successful `gpt-oss-120b` one — with a real
   roadmap on screen rather than the seeded fallback.
 
-**Status:** `npm run build` clean · Vitest **283/283** (was 248) · Playwright
-**81/81** (unchanged, no regression). **Manual QA gate NOT yet run** —
-`tests/phase-6.1-groq-provider.md`, 42 cases across 8 suites. Not demoable until
-that pass is reported (Rule 27).
+**Status (2026-09-20):** `npm run build` clean · Vitest **283/283** (was 248) ·
+Playwright **81/81** (unchanged, no regression). **Manual gate: 33 of 42 cases
+covered, 9 outstanding.** Per-suite ledger in `tests/phase-6.1-groq-provider.md`:
+
+- **Run case-by-case by the owner, all Pass —** GRQ (7), EMB (4), FO (9), MET (5),
+  UI (3) = 28.
+- **SEC (5) covered without a hand-run, with evidence per case —** SEC-01/03 by a
+  clean key grep over a fresh `.next/static`; SEC-02 by E2E suite AI-A; SEC-04 by
+  E2E AI-20; SEC-05 by the tracked-file + staged-content scan.
+- **NOT RUN — BILL (4) and CFG (5).** Two of those nine genuinely matter and are
+  ~2 minutes each: **BILL-01** (nothing has yet confirmed `AI_BILLING_MODE=paid`
+  actually took effect — it was set in response to this phase) and **CFG-04** (if
+  the mock provider *can* recover via Groq under `AI_MOCK_MODE=error`, the 81/81
+  E2E figure stops meaning what it says). The remaining seven are reporting
+  nuances and env permutations whose policy is exhaustively unit-tested.
+
+**Not marked DONE.** Rule 27 says the phase isn't demoable until the gate closes,
+and BILL-01 + CFG-04 are still open. Groq console confirms **free tier**, so the
+failover path's real ceiling is the measured **8,000 tokens/minute**, not the
+1,000 requests/day.
 
 ## Phase 6 (v2 backlog — not now)
 - Client-side iframe code execution → later server-side sandbox.
