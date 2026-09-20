@@ -41,8 +41,11 @@ positions AI as *a subsystem with engineering around it*, not a wrapper.
 - _[Phase 4] Ran v1 on a free-tier model (Gemini) behind a provider-agnostic gateway
   with tier-based routing, prompt caching, and per-user caps; measured token usage +
   cache hit-rate and **projected ~X% inference-cost reduction at paid-tier rates** —
-  fill X in once measured. (Honest form: the free tier's real dollar cost is ~$0; the
-  X% is the projected saving if/when it moves to paid.)_
+  fill X in once measured. (Honest form as of 2026-09-14: this runs on Gemini's
+  **paid** Tier 1 and has cost about **$0.85 total** across the whole Phase 4→5
+  build, so the caching saving is now a real — if tiny — dollar figure rather than
+  a pure projection. Quote the measured %, not the dollars; the dollars are small
+  because the traffic is.)_
 - Enforced hard per-user daily AI caps and auth-gated inference routes to keep a
   usage-metered bill predictable.
 - Built a layered test suite — Vitest for pure logic (77), Playwright E2E for the
@@ -425,13 +428,19 @@ status from a pure function — so the dashboard structurally *cannot* flatter y
   verified against the live `models.list` endpoint before the adapter was written —
   I don't build against a model id I read in a doc.
 - _The honest cost readout (say the caveat before they find it):_ `/usage` shows what
-  was **actually charged** ($0.00 on the free tier) next to a **projection** at
-  published paid-tier rates, computed at read time from real token counts. The
+  was **actually charged** next to a **projection** at published paid-tier rates,
+  computed at read time from real token counts. The project started on the free
+  tier, where "actually charged" was $0.00 on every row; it is now on paid Tier 1,
+  where the two figures should converge — and **watching them fail to converge is
+  how I found a real bug**, see §7. The
   projection is never stored — same reasoning as deriving roadmap status: a stored
   projection goes stale the moment the rate card or model binding changes, and a
   column named `cost_usd` holding money nobody was charged is a fiction waiting to be
   quoted back at me. So the résumé claim is *"designed and measured the controls;
-  projected N% saving at paid rates"* — never "cut costs N%" on a free tier.
+  projected N% saving at paid rates"*. On the free tier "cut costs N%" would have
+  been a straight fiction; on paid it is now technically true but rhetorically
+  dishonest at this traffic — the absolute number is under a dollar, so I quote the
+  ratio and say what the volume was.
 - _What "cache hit-rate" is measured over, in case they push:_ input tokens only.
   Output is never cached, so including it would dilute the rate and understate the
   win. And `cached_input_tokens` is a **subset** of `input_tokens`, not an addition —
@@ -454,18 +463,24 @@ status from a pure function — so the dashboard structurally *cannot* flatter y
   undermine the one thing the retention loop exists to enforce. If asked why there's
   no AI in grading, that's the answer, and it's a better one than the feature.
 - _Prompt caching — what's cached and the honest saving:_ the fixed system/rubric
-  scaffolding is cached. On the free tier the dollar saving is ~$0 (already free), so at
-  v1 it's a **latency + token-efficiency** win; the dollar saving is **projected** at
-  paid-tier rates via the cost readout. Don't claim a free-tier "cut cost X%" — say
-  "designed + measured the controls; projected X% at paid rates."
+  scaffolding is cached. On the free tier the dollar saving was ~$0 (everything was
+  free), so it was a **latency + token-efficiency** win with the dollars projected.
+  On paid Tier 1 the saving is real, just small at this volume. **The sharper point
+  since Phase 6.1:** the hit-rate is now computed over *cache-capable rows only* —
+  Groq does no prompt caching at all, and the old global denominator would have let
+  its rows drag Gemini's measured hit-rate down while staying arithmetically
+  correct. That's the interesting version of this answer.
 - _Rate-limit / per-user cap design:_ hard per-user daily caps checked server-side
   against `ai_usage` *before* dispatch; provider spend cap in the console; every call
   (incl. embeddings) metered. Caps + no-unauthenticated-route are what stop a shared
   link from spiking the bill.
-- _"Why a free tier — isn't that a toy?"_ → deliberate for a solo portfolio project;
-  the free tier is rate-limited and its data-use terms differ from paid, which I'd flag
-  before real users. The point of the gateway is exactly that this is a swap, not a
-  rewrite — I optimized for $0 now with a clean paid-tier upgrade path.
+- _"Why a free tier — isn't that a toy?"_ → it started on one, deliberately, and has
+  since moved to **paid Tier 1** — which is the answer I'd actually give, because it
+  removes the free tier's two real caveats: the rate limits, and the data-use terms
+  (Google does not train on paid-tier prompts). Total spend for the whole AI build:
+  about **$0.85**. The gateway is what made that a config change rather than a
+  rewrite — and Phase 6.1 proved the same claim a second time by adding a whole
+  second provider.
 
 ### 4g. RAG — grounding resources on a curated corpus [Phase 4.5 — built]
 
@@ -695,6 +710,88 @@ curriculum. Doesn't that break your own AI-never-blocks rule?"**
 
 ---
 
+### 4i. The second provider — and the interface that caught its own assumption [Phase 6.1 — built]
+
+**The one-liner.** Rule 7 said "a provider is a config binding, not code scattered
+through features". Phase 6.1 is the experiment that tested it: adding Groq's
+open-weight gpt-oss models took **one sibling adapter file and a change to
+provider resolution** — no route, no screen, no product code. The claim stopped
+being an assertion.
+
+**Why a second provider at all — and the honest answer to "to save money?"**
+No. The project was already on Gemini's paid tier and had spent about **$0.85**
+across the entire Phase 4→5 build. Two real reasons: (1) **resilience against a
+failure this project actually hit** — a multi-day Gemini outage during Phase 4,
+which is in the infra log; (2) **evidence for Rule 7**. The cost angle is real but
+secondary and I state it carefully: gpt-oss-120b is 15x cheaper on output tokens,
+so cost reduction is now a lever that *exists* — not a saving I have *claimed*.
+
+**The best part of the story — the interface caught its own assumption.** Since
+Phase 4.5 the `Provider` interface **required** `embed()`, with this reasoning
+written next to it: *"an adapter that can complete but silently cannot embed would
+fail at runtime in the middle of a user's request. Making it part of the interface
+means 'can this provider serve Prep?' is answered by the compiler."*
+
+Groq has **no embeddings endpoint at all** — I confirmed that against its own
+`models.list`, 14 models, every one chat/speech/safety, rather than trusting a
+docs page. So the compiler's answer was: *Groq cannot serve Prep*.
+
+The reasoning was right. Its **granularity** was wrong — it encoded *a provider is
+all-or-nothing*, and the second provider falsified that. I split it:
+
+```ts
+interface CompletionProvider { complete(…) }
+interface EmbeddingProvider  { embed(…) }
+type Provider = CompletionProvider & EmbeddingProvider;   // gemini, mock
+```
+
+The compile-time guarantee survives — it now answers "*which tiers* can this
+provider serve?", which is the question reality actually asks. **And this is the
+interface working, not failing:** an adapter forced to declare an `embed()` it
+cannot perform is precisely the 2am runtime failure that note was written to
+prevent. The consequence is honest too — during a Gemini outage, completions fail
+over to Groq while RAG degrades to `unverified` resources. A **partial** failover,
+labelled, rather than a hidden one.
+
+**"How do you decide a model setting?" — measure it.** gpt-oss is a reasoning
+model: it bills chain-of-thought you never see. My first probe spent **1124 of
+1498 completion tokens invisibly**. So I ran all four `reasoning_effort` settings
+against the *real* roadmap schema and the *real* validator:
+
+| effort | completion | reasoning | latency | validator |
+|---|---|---|---|---|
+| low | 675 | 71 (11%) | 2.2s | PASS |
+| medium | 948 | 551 (58%) | 2.4s | PASS |
+| high | 2,763 | 2,313 (84%) | 6.3s | PASS |
+
+All four pass, so `high` buys nothing and costs 4x the output tokens. The cheapest
+setting that passes is the setting. Same discipline as the RAG similarity floor: a
+property of the model-and-task pair, measured, with the table kept in the code.
+
+**The bug this phase caught before it could lie.** Cache hit-rate and cache-saving
+ratio were computed over *every* usage row. Groq does no prompt caching — its
+response has no cached-token field at all. The first Groq dispatch would have put
+input tokens in the denominator with nothing in the numerator, dragging the rate
+down and making **Gemini's caching look like it had regressed**. The number would
+have stayed arithmetically correct and quietly started meaning something else — on
+the screen whose whole point is not overstating things, and it's the number behind
+my "cut inference cost" line. Fix: derive "does this model cache?" **from the rate
+card** (`cachedInputPerM < inputPerM`) rather than adding a flag that could
+disagree with the prices, and compute the ratios over cache-capable rows only. The
+absolute dollar saving stays global — a non-caching row contributes exactly 0 to
+it, so it was never wrong.
+
+**Cap interaction, if they push on it.** A failover is a real provider dispatch,
+so it spends from the same `MAX_ATTEMPTS` budget a malformed-retry would, and the
+cap is re-checked before it. At `used = CAP − 1` the failover is **refused**: Rule
+3 outranks resilience. One user action can never cost more than `MAX_ATTEMPTS`
+calls however the failures are mixed.
+
+**The detail I'd volunteer.** The mock provider **never** fails over. The E2E
+suite drives the Rule 9 outage path with `AI_MOCK_MODE=error`; a mock that quietly
+recovered on a real provider would turn all of those specs green for the wrong
+reason — an outage test that cannot produce an outage.
+
 ### 4f. The sandboxing trade-off [cut / v2]
 - _Why server-side code execution was consciously cut for v1_ (security surface:
   container isolation, resource limits, escape risk + cost) → client-side iframe instead.
@@ -708,8 +805,8 @@ curriculum. Doesn't that break your own AI-never-blocks rule?"**
 | Why RAG here, and only here? | Exactly one surface has a real retrieval problem: **topic resources**. Generated-from-memory resources hallucinate URLs / cite dead links. So resources are RAG-grounded on a curated pgvector corpus (retrieve → ground → the model can't invent a link). Everything else (roadmap, mental model, exercises) is pure generation — no retrieval problem there, so no RAG there. RAG solves a named failure mode, it's not decoration. |
 | Why not LangChain / LangGraph? | The pipeline is embed → pgvector query → grounded completion — three steps I own end-to-end behind my gateway. A framework re-introduces the vendor-SDK spread my gateway exists to prevent, and hides the one interesting part. LangGraph orchestrates agent loops; Prep has no agent loop, so there's nothing for it to run. Evaluated, chose the ~100-line typed gateway. |
 | Why pgvector, not a dedicated vector DB (Pinecone/Weaviate)? | The corpus is small and already lives next to everything else in Postgres. pgvector + an HNSW index gives me similarity search with zero new infra, one backup story, and I can join resources to topics in SQL. A separate vector DB is operational overhead I'd have to justify at hundreds of docs, not dozens. |
-| Why not multi-provider LLM shopping? | Marginal savings at MVP scale vs. the overhead of a multi-provider layer. "Cost-aware tier routing + caching within one provider behind a gateway" is the cleaner story — and my gateway already makes switching a config edit, so I get the option value without the runtime complexity. Revisit at hundreds of users. |
-| Why a free-tier model (Gemini), not Claude? | Deliberate for a solo portfolio project — v1 runs at ~$0. Free tier is rate-limited and its data-use terms differ from paid, which I'd change before real users; the provider-agnostic gateway makes that a config swap, not a rewrite. Quality gap on structured JSON is small and my schema-validate-+-retry-+-seeded-fallback path absorbs it. |
+| Why not multi-provider LLM shopping? | I said this was overhead at MVP scale — then built it in Phase 6.1, and for a reason that wasn't cost: I'd already been hit by a multi-day provider outage, so the second provider is **failover**, not shopping. It cost one adapter file plus provider resolution in the gateway, which is the claim Rule 7 had been making on credit. Cost routing across providers is still not something I do — the tier routing lives *within* the primary. |
+| Why Gemini, not Claude? | Started on Gemini's free tier for a solo portfolio project, now on paid Tier 1 — about $0.85 for the whole AI build. The provider-agnostic gateway made that upgrade a config swap, and Phase 6.1 added Groq's open-weight gpt-oss as a failover through the same door. Quality gap on structured JSON is small and my schema-validate-+-retry-+-seeded-fallback path absorbs it. |
 | Why the browser's print dialog instead of generating a PDF? | The browser already does pagination, page size, margins and Save-as-PDF on every platform. Server-side means headless Chromium (doesn't fit a Vercel function) or a PDF library that makes me re-implement layout. The trade I accept: I can't hand them a file, and I only influence pagination via `break-inside: avoid`. I'd revisit the day I need to *email* someone a PDF. |
 | Why a CSS-only mobile layout instead of a drawer? | Under 860px the sidebar becomes a top bar and the grids collapse — no JS. A drawer means a state machine plus focus trapping, escape handling, `aria-expanded` and scroll locking: a real accessibility surface, added to hide **four links that fit on one row**. |
 | Why is print the only place you use raw hex? | Print colour management isn't the screen pipeline, `print-color-adjust` support is uneven, and paper has one theme — a page inheriting my `--bg` token prints the dark theme as a black rectangle. It's the one exception my own rules name, and it's also the only stylesheet in an inline-styled app, because `@page` and `break-inside` have no inline form. |
@@ -726,13 +823,19 @@ curriculum. Doesn't that break your own AI-never-blocks rule?"**
 
 Naming a limitation *first* reads as senior. Keep a real list:
 - Recall content is seeded/generated, not yet validated against learning-science literature.
-- Single-provider AI — no failover if that provider is down (acceptable at this scale).
-- **v1 runs on a free tier** (Gemini) — rate-limited, and free-tier data-use terms
-  differ from paid; fine for a portfolio project, but a paid tier is the pre-real-users
-  step (a config swap by design, not a rewrite).
-- The **"cut cost X%" number is a projection**, not a realized free-tier saving — the
-  free tier already costs ~$0. I measure token usage + cache hit-rate and project the
-  saving at paid rates; I say it that way rather than implying a live dollar cut.
+- ~~Single-provider AI — no failover~~ — **fixed in Phase 6.1**: Gemini primary,
+  Groq's open-weight gpt-oss as automatic failover. The honest residue: the failover
+  is **partial**, because Groq cannot embed, so during a Gemini outage completions
+  keep working while RAG degrades to `unverified` resources. Labelled, not hidden.
+- The **"cut cost X%" number is a ratio, not a headline dollar figure.** The project
+  is on paid Tier 1 now, so the caching saving is real — but total AI spend across
+  the whole build is about **$0.85**, so quoting dollars would oversell a small
+  number. I quote the measured percentage and say what the volume was.
+- **A config flag was wrong for two phases and nothing caught it.** `AI_BILLING_MODE`
+  stayed at its safe default (`free`) after the account moved to paid, so `cost_usd`
+  recorded $0 on every row while money was actually being charged. No data was lost
+  (cost is recomputable from the token columns), but the lesson stands: the app
+  trusted a hand-set flag for a fact the provider already knew.
 - RAG corpus is **hand-curated and small** — good precision on covered areas, thin
   coverage on niche topics (which fall back to `unverified` generated resources). It's
   quality-over-breadth by choice, not a scraped index; scaling coverage is a v2 job.

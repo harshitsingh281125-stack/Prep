@@ -29,7 +29,7 @@ The AI is **one component behind a gateway**, not the product.
 |-------|--------|-------------------------------|
 | App + server | **Next.js 15** (App Router), TypeScript | Plain React/Vite has no trusted server layer, and the provider key, the per-user caps and schema validation all have to live somewhere the client can't bypass. |
 | DB / auth | **Supabase** (Postgres + Auth + RLS) | Wanted to write real SQL — schema, indexes and RLS by hand — without running auth and connection infra. **No ORM**, on purpose: DB fluency is a goal, and an ORM hides the schema. |
-| AI | Provider-agnostic **gateway** (`lib/ai/gateway.ts`) → Google Gemini | No LangChain/LangGraph. A tiered `complete()` + `embed()` + one pgvector query is ~fully owned; a framework would re-introduce exactly the vendor-SDK spread the gateway exists to prevent, and there is no agent loop for it to run. |
+| AI | Provider-agnostic **gateway** (`lib/ai/gateway.ts`) → Google Gemini, failing over to Groq's open-weight gpt-oss | No LangChain/LangGraph. A tiered `complete()` + `embed()` + one pgvector query is ~fully owned; a framework would re-introduce exactly the vendor-SDK spread the gateway exists to prevent, and there is no agent loop for it to run. |
 | Charts | Hand-rolled SVG | A charting library for two charts is a dependency you can't explain in an interview. |
 | Hosting | Vercel | Same deploy as the server routes. |
 

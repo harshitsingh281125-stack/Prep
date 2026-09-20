@@ -12,6 +12,98 @@
 
 ## Settled decisions (don't re-litigate)
 
+- **2026-09-20 · Phase 6.1 QA: the failover runs on Groq's FREE tier, and its real
+  ceiling is TOKENS PER MINUTE, not requests per day.** Confirmed in the console.
+  The numbers came from the live `x-ratelimit-*` response headers rather than the
+  blog posts I'd quoted earlier: 1,000 requests, but **8,000 tokens/minute** — four
+  roadmap generations left 1,679 of that budget. At `reasoning_effort: 'low'` a
+  roadmap is ~1,430 tokens, so ~5 generations/minute. **Why this is fine:** Groq is
+  the *failover*, reached only when Gemini's dispatch fails, so the ceiling is
+  measured against outage traffic and not normal traffic. It would be tight as a
+  primary. Same lesson as the Phase 4 infra entry, applied a second time: a
+  dashboard that says "Free" is a claim, a response header is evidence.
+
+- **2026-09-20 · Phase 6.1 QA gate: closed the SEC suite WITHOUT a manual run, with
+  per-case evidence — and left BILL/CFG honestly open rather than rounding up.**
+  The owner hand-ran GRQ/EMB/FO/MET/UI (28 cases, all pass) and did not run
+  BILL/CFG. Instead of recording "42/42", the five SEC cases were each resolved
+  against something checkable: a key grep over a fresh `.next/static` (SEC-01/03),
+  existing green E2E suites AI-A and AI-20 (SEC-02/04), and the tracked-file +
+  staged-content scan (SEC-05). **Why it's written this way:** Phase 4.5 was closed
+  on "owner reported a pass" with no per-case ledger and that gap is still recorded
+  as a weakness; Phase 5 fixed it by writing down what was and wasn't exercised.
+  Nine cases remain open, and only two of them can't be inferred from unit tests —
+  BILL-01 (nothing has confirmed `AI_BILLING_MODE=paid` took effect) and CFG-04 (if
+  the mock CAN recover via Groq, the 81/81 E2E figure stops meaning what it says).
+  The phase is **not** marked DONE on 33/42.
+
+- **2026-09-14 · Phase 6.1: a SECOND provider (Groq / open-weight gpt-oss), as both
+  a manual switch and an automatic failover — and the honest reason is resilience,
+  not cost.** The question that started it was "can we use open-source models that
+  won't cost money", and the first answer was to correct the premise: the project
+  was already on Gemini's **paid** Tier 1 (₹73.49 across Jun 17–Sep 14 — about
+  $0.85 for the entire Phase 4→5 build), so "free" was not the thing on offer.
+  What Groq actually buys: (a) a second provider to fail over to, against the exact
+  failure this project already hit — the multi-day Gemini outage in the Phase 4
+  infra log; (b) **evidence for Rule 7** — "swapping providers is a sibling file
+  and a config edit" stopped being a claim and became a thing that was done. The
+  cost angle is real but secondary and must be stated carefully: gpt-oss-120b is
+  $0.15/$0.60 per M against gemini-3.5-flash's $1.50/$9.00, i.e. **15x cheaper on
+  output** — so a "cut inference cost" line is now a lever that exists, not a
+  projection. **Why not "just go free":** OpenRouter's `:free` tier is 50 requests/
+  day below a $10 lifetime spend — two Prep users — and which models are free
+  rotates without notice, which would silently invalidate the model binding in
+  `lib/ai/config.ts`. Local Ollama is worse: Vercel serverless cannot reach
+  localhost, and the `mock` provider already covers offline dev **better** (it is
+  deterministic and can force the malformed path on demand). See
+  `lib/ai/providers/groq.ts`, `tests/phase-6.1-groq-provider.md`.
+
+- **2026-09-14 · Phase 6.1: `Provider` split into `CompletionProvider` +
+  `EmbeddingProvider` — the interface encoded an assumption the second provider
+  falsified.** Since Phase 4.5 `embed()` was **required**, with this reasoning
+  attached: "an adapter that can complete but silently cannot embed would fail at
+  runtime in the middle of a user's request. Making it part of the interface means
+  'can this provider serve Prep?' is answered by the compiler." That reasoning was
+  right; its **granularity** was wrong. It encoded *a provider is all-or-nothing*,
+  and Groq has **no embeddings endpoint at all** — confirmed against its own
+  `models.list` (14 models: chat, speech, safety, nothing else), not inferred from
+  docs. So the capability is split and the compile-time guarantee survives, now
+  answering "which tiers can this provider serve?" — a question the real world
+  actually asks. **The part worth saying out loud in an interview:** this is the
+  interface *working*. A Groq adapter forced to declare an `embed()` it cannot
+  perform is precisely the runtime failure the original note was written to
+  prevent. Consequence: the embedding tier always resolves to Gemini, so during a
+  Gemini outage completions fail over while RAG degrades to `unverified` — an
+  **honest partial failover** rather than a hidden one.
+
+- **2026-09-14 · Phase 6.1: `reasoning_effort: 'low'`, MEASURED against the real
+  validator — and the measurement is the point.** gpt-oss is a reasoning model: it
+  bills chain-of-thought tokens you never see. The first probe's roadmap spent
+  **1124 of 1498 completion tokens invisibly**. So all four settings were run
+  against the real `ROADMAP_SCHEMA` and the real `validateRoadmap()`:
+  low = 675 completion / 71 reasoning (11%) / 2.2s; medium = 948 / 551 (58%);
+  high = 2763 / 2313 (84%) / 6.3s; default = 1121 / 736 (66%). **All four PASS.**
+  So `high` spends 4x the output tokens and 3x the latency for no measurable gain,
+  and output tokens are the expensive line item — the cheapest setting that passes
+  is the setting. Same shape of reasoning as `DEFAULT_RAG_MIN_SIMILARITY`: a
+  property of the model-and-task pair, so re-measure if the prompt or schema moves.
+
+- **2026-09-14 · Phase 6.1: a failover spends a dispatch from the SAME
+  `MAX_ATTEMPTS` budget as a malformed-retry, and the mock provider NEVER fails
+  over.** Two deliberate constraints. (1) One user action can never cost more than
+  `MAX_ATTEMPTS` calls of the daily cap however the failures are mixed, and the
+  loop's cap re-check still guards the boundary — so at `used = CAP-1` a failed
+  primary dispatch means the failover is **refused**, because Rule 3 outranks
+  resilience. (2) The mock never failing over is load-bearing for the test suite,
+  not a detail: the E2E specs drive Rule 9's outage path with `AI_MOCK_MODE=error`,
+  and a mock that quietly recovered on a real network provider would turn every one
+  of those specs green *for the wrong reason* — an outage test that cannot produce
+  an outage. Also settled: a provider error still does **not** retry the provider
+  that just failed (that argument was always about re-dispatching into the same
+  outage, and a different provider is not that), and a **malformed** response does
+  not fail over at all — malformed is non-deterministic on the same model, which is
+  the entire premise of Rule 9's retry.
+
 - **2026-08-14 · Phase 4.5: the RAG similarity floor is 0.64, re-measured after the
   corpus grew — and a BROADER CORPUS SHRINKS THE SAFETY MARGIN.** The floor started
   at an intuitive 0.55 (wrong — see the bug log), was measured to 0.62 against a
@@ -628,6 +720,53 @@
 
 ## Bugs hit + fixed
 
+- **2026-09-14 · Phase 6.1 · CONFIG DRIFT, not a code bug: `AI_BILLING_MODE` was
+  never set, so `cost_usd` recorded $0 on every row while real money was being
+  charged.** `billingMode()` defaults to `'free'`, and that default was chosen
+  deliberately — "the safe direction, since it never overstates what was spent".
+  But the Gemini account moved to **paid Tier 1 around Aug 6**, which means Phases
+  4.5 and 5 were built and metered under a flag that had quietly become false:
+  `gateway.ts` wrote `cost_usd: 0` on every dispatch, and `/usage` captioned its
+  figures *"what it would cost on a paid tier"* **while on the paid tier**.
+  **The lesson, and it is the interesting half:** a deliberately safe default
+  became the wrong value when reality changed underneath it, and *nothing in the
+  system could detect the mismatch* — the app trusts a hand-set flag for a fact the
+  provider already knows. **No backfill was needed**, which is the one piece of
+  luck: cost is recomputed from the `input_tokens`/`output_tokens`/
+  `cached_input_tokens` columns at read time, so the true figure for every
+  historical row is still derivable — only the stored column is wrong. Follow-up
+  worth considering in v2: reconcile against the provider's reported spend instead
+  of trusting the flag (`BILL-04` in the phase 6.1 QA doc is the manual version of
+  exactly that check).
+
+- **2026-09-14 · Phase 6.1 · a latent metric bug caught before it could lie: cache
+  hit-rate and cache-saving ratio were computed over EVERY row.** Both metrics
+  divided by totals across all dispatches. The moment a **structurally
+  non-caching** provider started writing rows — Groq returns no cached-token field
+  at all; its `usage` carries only `completion_tokens_details.reasoning_tokens` —
+  its input tokens would have landed in the denominator with nothing in the
+  numerator, dragging the rate toward zero and making **Gemini's prompt caching
+  look like it had regressed**. The number would have stayed arithmetically correct
+  and started meaning something else, on the one screen whose entire selling point
+  is not overstating things — and it is the number behind the "cut inference cost
+  X%" résumé line. **Fix:** `cachesPrompts(model)` derives the answer **from the
+  rate card** (`cachedInputPerM < inputPerM`) rather than a separate boolean,
+  because a flag sitting next to the prices is a second source of truth that can
+  disagree with them; the two *ratios* are computed over cache-capable rows only,
+  while the absolute `cacheSavingUsd` stays global and is still correct (a
+  non-caching row contributes exactly 0 to it). A Groq-only or mock-only window now
+  reports `null` rather than `0%` — "0%" would be a claim that caching was tried
+  and failed. Pinned by 4 tests in `tests/unit/ai-cost.test.ts`.
+
+- **2026-09-14 · Phase 6.1 · a doc-comment that pointed at a file which has never
+  existed.** `lib/ai/providers/gemini.ts` claimed swapping providers meant
+  "changing one line in `lib/ai/index.ts`". There is no `lib/ai/index.ts`; the real
+  swap point is `resolveProvider()` (now `resolveCompletionChain()`) in
+  `gateway.ts`. Small, but it mattered: that sentence was feeding the Rule 7 story
+  in `interview.md`, so the rehearsed answer named a file an interviewer could ask
+  to see and not find. Corrected, and the claim is now backed by an actual second
+  adapter rather than an assertion.
+
 - **2026-07-26 · SECURITY DEFINER signup function was callable by clients via RPC.**
   Symptom: after applying `0001_profiles.sql`, Supabase security advisors flagged
   `handle_new_user()` as executable by `anon` + `authenticated` through
@@ -1164,6 +1303,23 @@
   code bug" interview story.
 
 ## Verified subsystems (explain-cold ready)
+
+- **2026-09-20 · Phase 6.1 second AI provider + failover — QA gate closed at 35/42,
+  with the 7 unrun cases named rather than rounded into a total.** What is verified
+  end-to-end and explain-cold ready: the Groq adapter's vendor translation
+  (lowercase types, injected `additionalProperties:false`, every property promoted
+  to `required`); the capability-split `Provider`; the failover walk and its cap
+  arithmetic; and the cache-metric split. **Two results are worth remembering as
+  facts rather than intentions:** (1) **CFG-04 passed** — with `AI_PROVIDER=mock`,
+  `AI_MOCK_MODE=error` and a live `GROQ_API_KEY`, generation still fell back to
+  seed, so the mock genuinely does not recover via Groq and the 81/81 E2E figure
+  still means what it says; had this failed, every Rule 9 spec would have been
+  green for the wrong reason. (2) **BILL-01 passed** — `AI_BILLING_MODE=paid` takes
+  effect and a fresh dispatch records non-zero actual spend, closing the config
+  drift for real. **Still open, deliberately: BILL-04** — comparing the `/usage`
+  projection against the Gemini console's reported spend. It is the only check that
+  would catch a stale rate card, and a stale rate card silently produces a wrong
+  number in a résumé bullet, so it is worth doing before quoting any cost figure.
 
 - **2026-08-14 · Phase 4.5 RAG — grounding topic resources on a curated corpus.**
   Vitest **210/210** (29 RAG: the grounding validator's every rejection path plus the

@@ -3,7 +3,10 @@
 // Rule 7 in practice: this implements the vendor-neutral `Provider` interface
 // and nothing above it (the gateway, the routes, the screens) imports anything
 // from here or knows this API exists. Swapping providers means writing a sibling
-// file and changing one line in lib/ai/index.ts.
+// file and changing the provider resolution in lib/ai/gateway.ts — which is
+// exactly what Phase 6.1 did for Groq, so this is now a measured claim and not
+// an aspiration. (It said "one line in lib/ai/index.ts" until 2026-09-14; that
+// file has never existed, and the claim was feeding interview.md.)
 //
 // Deliberately raw `fetch` rather than @google/genai. The SDK would buy us
 // retries and types we already own, and would put a vendor package one import

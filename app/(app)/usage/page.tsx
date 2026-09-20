@@ -137,7 +137,17 @@ export default async function UsagePage() {
                 testId="stat-cache"
                 label="Cache hit-rate"
                 value={s.cacheHitRate === null ? "—" : `${Math.round(s.cacheHitRate * 100)}%`}
-                sub={`of ${fmt(s.inputTokens)} input tokens`}
+                sub={
+                  // Phase 6.1: the rate is over cache-capable dispatches only, so
+                  // the caption has to say so the moment a non-caching provider
+                  // (Groq) has written rows — otherwise the denominator on screen
+                  // is not the denominator in the maths.
+                  s.cacheHitRate === null
+                    ? "no cache-capable calls yet"
+                    : s.cacheCapableCalls === s.calls
+                      ? `of ${fmt(s.inputTokens)} input tokens`
+                      : `over ${s.cacheCapableCalls} of ${s.calls} cache-capable dispatches`
+                }
               />
               <StatTile
                 testId="stat-tokens"
@@ -183,7 +193,7 @@ export default async function UsagePage() {
                   value={usd(s.cacheSavingUsd)}
                   note={
                     s.cacheSavingRatio === null
-                      ? "no spend yet"
+                      ? "no cache-capable spend yet"
                       : `${Math.round(s.cacheSavingRatio * 100)}% off the uncached projection`
                   }
                   valueColor={s.cacheSavingUsd > 0 ? "var(--green)" : undefined}

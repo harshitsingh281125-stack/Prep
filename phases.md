@@ -299,6 +299,56 @@ case which of the awkward-setup rows were actually exercised, the answer was:
 - **README** with the "why" behind each subsystem (interview-defensibility).
 - **Demo:** export a roadmap to PDF; end-to-end run-through clean.
 
+## Phase 6.1 — Second AI provider + failover ✅ DONE
+
+**Goal:** prove Rule 7's "a provider is a config binding" by adding a second one,
+and turn a provider outage from "degrade to seeded content" into "degrade to a
+different model".
+
+- **Groq adapter** (`lib/ai/providers/groq.ts`) on open-weight gpt-oss models —
+  `openai/gpt-oss-120b` (reasoning) / `openai/gpt-oss-20b` (classification), both
+  confirmed against the live `models.list` before any adapter code was written.
+- **Two modes:** manual switch (`AI_PROVIDER=groq`) and automatic failover
+  (Gemini primary → Groq on a failed dispatch → seeded fallback). `AI_FAILOVER=off`
+  restores pre-6.1 behaviour exactly.
+- **`Provider` split into `CompletionProvider` + `EmbeddingProvider`** — Groq has
+  no embeddings endpoint, so the embedding tier always resolves to Gemini and the
+  compiler enforces it. During a Gemini outage, completions fail over while RAG
+  degrades to `unverified`: an honest *partial* failover.
+- **`reasoning_effort: 'low'`**, measured against the real validator — all four
+  settings pass, so the cheapest wins (11% reasoning tokens vs `high`'s 84%).
+- **Cache-metric fix:** hit-rate and saving-ratio now computed over cache-capable
+  rows only. Groq does no prompt caching, and the old global denominator would have
+  made Gemini's caching look like it regressed.
+- **Config drift fixed:** `AI_BILLING_MODE=paid` — the account moved to Gemini's
+  paid tier around 2026-08-06 while the flag still defaulted to `free`, so
+  `cost_usd` recorded $0 on every row for two phases.
+- **Demo:** corrupt the Gemini key, generate a roadmap, watch `/usage` record an
+  errored Gemini dispatch followed by a successful `gpt-oss-120b` one — with a real
+  roadmap on screen rather than the seeded fallback.
+
+**Status — CLOSED 2026-09-20:** `npm run build` clean · Vitest **283/283** (was
+248) · Playwright **81/81** (unchanged, no regression). **Manual gate: 35 of 42
+cases exercised**, per-suite ledger in `tests/phase-6.1-groq-provider.md`:
+
+- **Hand-run by the owner, all Pass —** GRQ (7), EMB (4), FO (9), MET (5), UI (3),
+  plus **BILL-01** (`AI_BILLING_MODE=paid` confirmed to take effect — a fresh
+  dispatch records non-zero actual spend) and **CFG-04** (mock under
+  `AI_MOCK_MODE=error` with a live Groq key still falls back to seed, so the mock
+  does **not** recover and the 81/81 E2E figure still means what it says).
+- **SEC (5) covered without a hand-run, with evidence per case —** SEC-01/03 by a
+  clean key grep over a fresh `.next/static`; SEC-02 by E2E suite AI-A; SEC-04 by
+  E2E AI-20; SEC-05 by the tracked-file + staged-content scan.
+- **NOT RUN, named not rounded — BILL-02/03/04 and CFG-01/02/03/05 (7).** Reporting
+  nuances and env permutations whose policy is exhaustively unit-tested (12 cases in
+  `ai-groq.test.ts`). **BILL-04 is the one worth doing later:** comparing the
+  `/usage` projection against the Gemini console's real spend is the only check
+  that would catch a stale rate card, and a stale rate card silently produces a
+  wrong number in a résumé bullet.
+
+Groq console confirms **free tier**, so the failover path's real ceiling is the
+measured **8,000 tokens/minute**, not the 1,000 requests/day.
+
 ## Phase 6 (v2 backlog — not now)
 - Client-side iframe code execution → later server-side sandbox.
 - AI-graded code submissions (depends on sandbox).
