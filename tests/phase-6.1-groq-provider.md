@@ -212,19 +212,31 @@ Not written off; each case has evidence:
   the pre-commit scan of staged content matched only the literal `"gsk_test"`
   fixtures in `tests/unit/ai-groq.test.ts`.
 
-### Still outstanding — 9 cases, of which 2 actually matter
+### Run 2026-09-20, after the first ledger — both PASS
 
-**BILL-01 and CFG-04 cannot be inferred from anything else and are ~2 minutes each.**
+- **BILL-01 — Pass.** `AI_BILLING_MODE=paid` took effect: a fresh dispatch records
+  a non-zero "Actually charged". The config drift is genuinely closed, not just
+  intended.
+- **CFG-04 — Pass.** With `AI_PROVIDER=mock`, `AI_MOCK_MODE=error` and a valid
+  `GROQ_API_KEY` present, generation still falls back to seeded content. The mock
+  did **not** recover via Groq — so the 81/81 E2E figure still means what it says,
+  and the `failoverFor('mock') === null` unit assertion is confirmed end-to-end.
 
-- **BILL-01** — `AI_BILLING_MODE=paid` was set *in response to this phase* and
-  nothing has confirmed it took effect. Until a dispatch is checked, "the billing
-  column is honest again" is an intention, not a fact. (Attempted via Supabase MCP
-  this session: unauthorized in that shell, so it needs a human on `/usage`.)
-- **CFG-04** — the stop-the-line case. If the mock provider *does* recover via
-  Groq under `AI_MOCK_MODE=error`, then every Rule 9 E2E spec is green for the
-  wrong reason and the 81/81 figure above stops meaning what it says.
+**Final tally: 35 of 42 exercised.**
 
-The other seven are lower-stakes: **BILL-02/03/04** are reporting nuances, and
-**CFG-01/02/03/05** are env permutations whose *policy* is exhaustively unit-tested
-(12 cases in `ai-groq.test.ts` covering `providerName()` precedence and
-`failoverFor()`), leaving only the integration unproven.
+### Not run — 7 cases, and why that is acceptable
+
+The two that could not be inferred from anything else — BILL-01 and CFG-04 — were
+run and passed (above). These seven remain, and they are named rather than rounded
+into a total:
+
+- **BILL-02/03/04** — reporting nuances. BILL-02 (historical rows still `0`) is a
+  known consequence of the drift rather than a behaviour under test; BILL-03 is the
+  `free` path, unchanged by this phase; **BILL-04 (comparing the `/usage`
+  projection against the Gemini console's actual spend) is the one genuinely worth
+  doing later** — it is the only check that would catch a stale rate card, and a
+  stale rate card silently produces a wrong number in a résumé bullet.
+- **CFG-01/02/03/05** — env permutations whose *policy* is exhaustively unit-tested
+  (12 cases in `ai-groq.test.ts` covering `providerName()` precedence and
+  `failoverFor()`). Only the integration is unproven, and CFG-04 — the one whose
+  failure would have invalidated other results — was run.

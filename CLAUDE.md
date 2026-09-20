@@ -79,14 +79,14 @@ Full context lives in these docs — **read them before non-trivial work**:
   248/248, E2E 81/81, manual matrix run by the owner **with a per-case ledger of
   what was and wasn't exercised recorded in phases.md**, and three of the skipped
   groups converted into automation rather than written off); **v1 is feature-complete.**
-  **Phase 6.1 (second AI provider + failover) is code-complete with its QA gate
-  still OPEN** — build clean, Vitest 283/283, E2E 81/81, and **33 of 42 manual
-  cases covered** (GRQ/EMB/FO/MET/UI hand-run and passed; SEC resolved by grep +
-  existing E2E with per-case evidence). **BILL and CFG were not run**, and two of
-  those — **BILL-01** (confirm `AI_BILLING_MODE=paid` actually took effect) and
-  **CFG-04** (mock under `AI_MOCK_MODE=error` must NOT recover via Groq) — keep the
-  phase from being demoable (Rule 24/27). Ledger in
-  `tests/phase-6.1-groq-provider.md`. The rest of Phase 6 is the v2 backlog and is
+  **Phase 6.1 (second AI provider + failover) closed 2026-09-20** — build clean,
+  Vitest 283/283, E2E 81/81, and **35 of 42 manual cases exercised** with a
+  per-case ledger in `tests/phase-6.1-groq-provider.md`: GRQ/EMB/FO/MET/UI plus
+  BILL-01 and CFG-04 hand-run and passed; SEC resolved by grep + existing green
+  E2E with evidence per case; **BILL-02/03/04 and CFG-01/02/03/05 not run** and
+  named as such. **BILL-04 is the open one worth doing** — comparing the `/usage`
+  projection against the Gemini console's real spend is the only check that
+  catches a stale rate card. The rest of Phase 6 is the v2 backlog and is
   explicitly not started.
 - **AI is live, on a PAID tier.** All generation goes through `lib/ai/gateway.ts`;
   `lib/ai/config.ts` is the only file naming a model (`gemini-3.5-flash` /

@@ -299,7 +299,7 @@ case which of the awkward-setup rows were actually exercised, the answer was:
 - **README** with the "why" behind each subsystem (interview-defensibility).
 - **Demo:** export a roadmap to PDF; end-to-end run-through clean.
 
-## Phase 6.1 — Second AI provider + failover (⏳ code-complete, QA gate open)
+## Phase 6.1 — Second AI provider + failover ✅ DONE
 
 **Goal:** prove Rule 7's "a provider is a config binding" by adding a second one,
 and turn a provider outage from "degrade to seeded content" into "degrade to a
@@ -327,26 +327,27 @@ different model".
   errored Gemini dispatch followed by a successful `gpt-oss-120b` one — with a real
   roadmap on screen rather than the seeded fallback.
 
-**Status (2026-09-20):** `npm run build` clean · Vitest **283/283** (was 248) ·
-Playwright **81/81** (unchanged, no regression). **Manual gate: 33 of 42 cases
-covered, 9 outstanding.** Per-suite ledger in `tests/phase-6.1-groq-provider.md`:
+**Status — CLOSED 2026-09-20:** `npm run build` clean · Vitest **283/283** (was
+248) · Playwright **81/81** (unchanged, no regression). **Manual gate: 35 of 42
+cases exercised**, per-suite ledger in `tests/phase-6.1-groq-provider.md`:
 
-- **Run case-by-case by the owner, all Pass —** GRQ (7), EMB (4), FO (9), MET (5),
-  UI (3) = 28.
+- **Hand-run by the owner, all Pass —** GRQ (7), EMB (4), FO (9), MET (5), UI (3),
+  plus **BILL-01** (`AI_BILLING_MODE=paid` confirmed to take effect — a fresh
+  dispatch records non-zero actual spend) and **CFG-04** (mock under
+  `AI_MOCK_MODE=error` with a live Groq key still falls back to seed, so the mock
+  does **not** recover and the 81/81 E2E figure still means what it says).
 - **SEC (5) covered without a hand-run, with evidence per case —** SEC-01/03 by a
   clean key grep over a fresh `.next/static`; SEC-02 by E2E suite AI-A; SEC-04 by
   E2E AI-20; SEC-05 by the tracked-file + staged-content scan.
-- **NOT RUN — BILL (4) and CFG (5).** Two of those nine genuinely matter and are
-  ~2 minutes each: **BILL-01** (nothing has yet confirmed `AI_BILLING_MODE=paid`
-  actually took effect — it was set in response to this phase) and **CFG-04** (if
-  the mock provider *can* recover via Groq under `AI_MOCK_MODE=error`, the 81/81
-  E2E figure stops meaning what it says). The remaining seven are reporting
-  nuances and env permutations whose policy is exhaustively unit-tested.
+- **NOT RUN, named not rounded — BILL-02/03/04 and CFG-01/02/03/05 (7).** Reporting
+  nuances and env permutations whose policy is exhaustively unit-tested (12 cases in
+  `ai-groq.test.ts`). **BILL-04 is the one worth doing later:** comparing the
+  `/usage` projection against the Gemini console's real spend is the only check
+  that would catch a stale rate card, and a stale rate card silently produces a
+  wrong number in a résumé bullet.
 
-**Not marked DONE.** Rule 27 says the phase isn't demoable until the gate closes,
-and BILL-01 + CFG-04 are still open. Groq console confirms **free tier**, so the
-failover path's real ceiling is the measured **8,000 tokens/minute**, not the
-1,000 requests/day.
+Groq console confirms **free tier**, so the failover path's real ceiling is the
+measured **8,000 tokens/minute**, not the 1,000 requests/day.
 
 ## Phase 6 (v2 backlog — not now)
 - Client-side iframe code execution → later server-side sandbox.

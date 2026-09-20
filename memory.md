@@ -1304,6 +1304,23 @@
 
 ## Verified subsystems (explain-cold ready)
 
+- **2026-09-20 · Phase 6.1 second AI provider + failover — QA gate closed at 35/42,
+  with the 7 unrun cases named rather than rounded into a total.** What is verified
+  end-to-end and explain-cold ready: the Groq adapter's vendor translation
+  (lowercase types, injected `additionalProperties:false`, every property promoted
+  to `required`); the capability-split `Provider`; the failover walk and its cap
+  arithmetic; and the cache-metric split. **Two results are worth remembering as
+  facts rather than intentions:** (1) **CFG-04 passed** — with `AI_PROVIDER=mock`,
+  `AI_MOCK_MODE=error` and a live `GROQ_API_KEY`, generation still fell back to
+  seed, so the mock genuinely does not recover via Groq and the 81/81 E2E figure
+  still means what it says; had this failed, every Rule 9 spec would have been
+  green for the wrong reason. (2) **BILL-01 passed** — `AI_BILLING_MODE=paid` takes
+  effect and a fresh dispatch records non-zero actual spend, closing the config
+  drift for real. **Still open, deliberately: BILL-04** — comparing the `/usage`
+  projection against the Gemini console's reported spend. It is the only check that
+  would catch a stale rate card, and a stale rate card silently produces a wrong
+  number in a résumé bullet, so it is worth doing before quoting any cost figure.
+
 - **2026-08-14 · Phase 4.5 RAG — grounding topic resources on a curated corpus.**
   Vitest **210/210** (29 RAG: the grounding validator's every rejection path plus the
   real-length regression cases, the retrieval-query builder, the corpus-search
