@@ -41,29 +41,17 @@ export default function AppError({
         <div
           role="alert"
           style={{
-            border: "1px solid var(--red)",
-            background: "var(--red-soft)",
-            borderRadius: "12px",
-            padding: "24px",
+            borderLeft: "2px solid var(--red)",
+            paddingLeft: "22px",
           }}
         >
-          <div
-            style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: "11px",
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "var(--red)",
-              marginBottom: "8px",
-            }}
-          >
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--red)", marginBottom: "6px" }}>
             Something broke
           </div>
-          <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "6px" }}>
+          <div style={{ fontFamily: "var(--font-serif)", fontSize: "28px", fontWeight: 500, marginBottom: "8px" }}>
             This screen didn&apos;t load.
           </div>
-          <p style={{ fontSize: "13.5px", color: "var(--text-muted)", lineHeight: 1.6, marginTop: 0 }}>
+          <p style={{ fontSize: "15px", color: "var(--text-muted)", lineHeight: 1.6, marginTop: 0 }}>
             Your data is fine — nothing here writes on load. Retry the screen, or go back to your
             roadmaps.
           </p>
@@ -79,8 +67,8 @@ export default function AppError({
             <div
               style={{
                 marginTop: "16px",
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: "11px",
+                fontFamily: "var(--font-mono)",
+                fontSize: "12px",
                 color: "var(--text-faint)",
               }}
             >
@@ -95,10 +83,10 @@ export default function AppError({
 
 const primaryButton: React.CSSProperties = {
   padding: "9px 16px",
-  borderRadius: "9px",
-  border: "1px solid var(--accent)",
-  background: "var(--accent)",
-  color: "oklch(0.99 0 0)",
+  borderRadius: "8px",
+  border: "1px solid var(--ink)",
+  background: "var(--ink)",
+  color: "var(--on-ink)",
   font: "inherit",
   fontSize: "13.5px",
   fontWeight: 600,
@@ -107,9 +95,9 @@ const primaryButton: React.CSSProperties = {
 
 const secondaryButton: React.CSSProperties = {
   padding: "9px 16px",
-  borderRadius: "9px",
+  borderRadius: "8px",
   border: "1px solid var(--border-strong)",
-  background: "var(--bg-elevated)",
+  background: "transparent",
   color: "var(--text)",
   font: "inherit",
   fontSize: "13.5px",

@@ -87,24 +87,20 @@ export default async function LibraryPage() {
 
   return (
     <>
-      <Header
+      <Header maxWidth={920}
         title="Library"
         subtitle="Your roadmaps. No fluff — five questions, then a plan you'll be held to."
         tag={
           used > 0 ? (
-            <span
-              style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: "11px",
-                color: canCreate ? "var(--text-muted)" : "var(--red)",
-                background: "var(--bg-elevated)",
-                border: "1px solid var(--border)",
-                borderRadius: "6px",
-                padding: "4px 10px",
-              }}
-            >
-              {used} / {maxRoadmaps} used
-            </span>
+            <>
+              <span
+                style={{ fontSize: "13px", color: canCreate ? "var(--text-faint)" : "var(--red)" }}
+                title={`${used} of ${maxRoadmaps} roadmap creations used`}
+              >
+                {used} / {maxRoadmaps} used
+              </span>
+              <NewRoadmapButton canCreate={canCreate} />
+            </>
           ) : undefined
         }
       />
@@ -112,34 +108,11 @@ export default async function LibraryPage() {
         {cards.length === 0 ? (
           <EmptyState />
         ) : (
-          <>
-            <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px" }}>
-              {cards.map((c) => (
-                <RoadmapCard key={c.id} data={c} />
-              ))}
-            </div>
-            <div
-              style={{
-                marginTop: "18px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: "12px",
-                  color: "var(--text-faint)",
-                }}
-              >
-                {used} of {maxRoadmaps} roadmap creations used
-              </div>
-              <NewRoadmapButton canCreate={canCreate} />
-            </div>
-          </>
+          <div style={{ borderTop: "1px solid var(--border)", margin: "0 -12px" }}>
+            {cards.map((c) => (
+              <RoadmapCard key={c.id} data={c} />
+            ))}
+          </div>
         )}
       </ContentArea>
     </>
@@ -148,56 +121,26 @@ export default async function LibraryPage() {
 
 function EmptyState() {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        textAlign: "center",
-        padding: "70px 24px",
-        border: "1px dashed var(--border-strong)",
-        borderRadius: "16px",
-        background: "var(--bg-sunken)",
-      }}
-    >
-      <div
-        style={{
-          width: "48px",
-          height: "48px",
-          borderRadius: "12px",
-          background: "var(--accent-soft)",
-          border: "1px solid var(--accent-line)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: "18px",
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="var(--accent)" strokeWidth={1.5}>
-          <rect x="2.4" y="2.4" width="4.8" height="4.8" rx="1" />
-          <rect x="8.8" y="2.4" width="4.8" height="4.8" rx="1" />
-          <rect x="2.4" y="8.8" width="4.8" height="4.8" rx="1" />
-          <rect x="8.8" y="8.8" width="4.8" height="4.8" rx="1" />
-        </svg>
+    <div style={{ borderTop: "1px solid var(--border)", padding: "56px 0 24px" }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: "24px", fontWeight: 500, letterSpacing: "-0.01em" }}>
+        No roadmaps yet.
       </div>
-      <div style={{ fontSize: "19px", fontWeight: 600, letterSpacing: "-0.015em" }}>No roadmaps yet</div>
-      <div style={{ color: "var(--text-muted)", marginTop: "6px", maxWidth: "44ch" }}>
+      <p style={{ color: "var(--text-muted)", margin: "10px 0 0", fontSize: "15px", lineHeight: 1.6, maxWidth: "52ch" }}>
         Build your first plan. Five questions, then a roadmap with kill criteria you can actually be
         held to.
-      </div>
+      </p>
       <a
         href="/onboarding"
+        className="btn-ink"
         style={{
-          marginTop: "22px",
-          padding: "11px 20px",
-          borderRadius: "9px",
-          border: "1px solid var(--accent)",
-          background: "var(--accent)",
-          color: "oklch(0.99 0 0)",
-          font: "inherit",
+          display: "inline-block",
+          marginTop: "24px",
+          padding: "10px 18px",
+          borderRadius: "8px",
+          background: "var(--ink)",
+          color: "var(--on-ink)",
           fontSize: "14px",
           fontWeight: 600,
-          cursor: "pointer",
           textDecoration: "none",
         }}
       >

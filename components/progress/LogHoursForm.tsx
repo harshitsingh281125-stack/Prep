@@ -64,31 +64,28 @@ export default function LogHoursForm({
   const fieldStyle = {
     padding: "9px 11px",
     borderRadius: "8px",
-    border: "1px solid var(--border)",
-    background: "var(--bg)",
+    border: "1px solid var(--border-strong)",
+    background: "var(--panel)",
     color: "var(--text)",
     font: "inherit",
-    fontSize: "13px",
+    fontSize: "14px",
   } as const;
 
   return (
     <form
       onSubmit={submit}
       style={{
-        background: "var(--panel)",
-        border: "1px solid var(--border)",
+        background: "var(--bg-sunken)",
         borderRadius: "12px",
-        padding: "18px",
-        marginBottom: "22px",
+        padding: "20px 22px",
+        marginTop: "48px",
       }}
     >
-      <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "14px" }}>Log study time</div>
+      <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "14px" }}>Log study time</div>
 
       <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-          <span style={{ fontSize: "11px", color: "var(--text-faint)", fontFamily: "'IBM Plex Mono',monospace" }}>
-            MINUTES
-          </span>
+          <span style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>Minutes</span>
           <input
             type="number"
             min={1}
@@ -102,9 +99,7 @@ export default function LogHoursForm({
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: "5px", flex: 1, minWidth: "240px" }}>
-          <span style={{ fontSize: "11px", color: "var(--text-faint)", fontFamily: "'IBM Plex Mono',monospace" }}>
-            TOPIC (OPTIONAL)
-          </span>
+          <span style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>Topic (optional)</span>
           <select
             value={topicId}
             onChange={(e) => setTopicId(e.target.value)}
@@ -127,11 +122,12 @@ export default function LogHoursForm({
             alignSelf: "flex-end",
             padding: "9px 18px",
             borderRadius: "8px",
-            border: "1px solid var(--accent)",
-            background: busy ? "var(--bg-elevated)" : "var(--accent)",
-            color: busy ? "var(--text-faint)" : "oklch(0.99 0 0)",
+            border: "1px solid var(--ink)",
+            background: "var(--ink)",
+            color: "var(--on-ink)",
+            opacity: busy ? 0.6 : 1,
             font: "inherit",
-            fontSize: "13px",
+            fontSize: "14px",
             fontWeight: 600,
             cursor: busy ? "wait" : "pointer",
           }}
@@ -140,7 +136,7 @@ export default function LogHoursForm({
         </button>
       </div>
 
-      <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "10px" }}>
+      <div style={{ fontSize: "12.5px", color: "var(--text-faint)", marginTop: "12px" }}>
         Attributing time to a topic fills that week&apos;s bar in the chart. Leaving it
         unattributed still counts toward total hours.
       </div>

@@ -16,7 +16,7 @@ export default function PhasePlaceholder({ phase, blurb }: { phase: string; blur
     >
       <div
         style={{
-          fontFamily: "'IBM Plex Mono',monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: "11px",
           letterSpacing: "0.06em",
           textTransform: "uppercase",

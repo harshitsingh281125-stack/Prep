@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { SeedResource, TopicDetail, TopicStatus } from "@/lib/seed/types";
 
-const MONO = "'IBM Plex Mono',monospace";
-
 /** Shared style for the two generate buttons in the sidebar panel. */
 function secondaryButton(busy: boolean): React.CSSProperties {
   return {
@@ -15,12 +13,12 @@ function secondaryButton(busy: boolean): React.CSSProperties {
     padding: "9px",
     borderRadius: "8px",
     font: "inherit",
-    fontSize: "13px",
-    fontWeight: 600,
+    fontSize: "13.5px",
+    fontWeight: 500,
     cursor: busy ? "wait" : "pointer",
-    border: "1px solid var(--accent)",
-    background: "var(--accent-soft)",
-    color: "var(--accent)",
+    border: "1px solid var(--border-strong)",
+    background: "transparent",
+    color: "var(--text)",
     opacity: busy ? 0.7 : 1,
   };
 }
@@ -94,20 +92,16 @@ function fallbackNote(reason: string | null | undefined): string {
 }
 
 export default function TopicStudy({
-  roadmapId,
   topicId,
   topicName,
   status,
-  weekLabel,
   killCriterion,
   detail: initialDetail,
   initialNote,
 }: {
-  roadmapId: string;
   topicId: string;
   topicName: string;
   status: TopicStatus;
-  weekLabel: string;
   killCriterion: string;
   detail: TopicDetail | null;
   initialNote: string;
@@ -227,52 +221,37 @@ export default function TopicStudy({
     };
   }, []);
 
+  const staleStyle: React.CSSProperties = {
+    opacity: detailBusy ? 0.45 : 1,
+    transition: "opacity 160ms ease",
+  };
+
   const resources = detail?.resources ?? [];
   const exercises = detail?.exercises ?? [];
 
   return (
     <div>
-      <button
-        onClick={() => router.push(`/roadmap/${roadmapId}`)}
-        style={{
-          border: "none",
-          background: "none",
-          color: "var(--text-muted)",
-          fontSize: "12.5px",
-          cursor: "pointer",
-          marginBottom: "16px",
-          fontFamily: MONO,
-        }}
-      >
-        ← Roadmap
-      </button>
-
-      <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
+      <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 280px", gap: "56px", alignItems: "start" }}>
         {/* Left column: model + resources + exercises */}
         <div>
-          <div style={{ marginBottom: "20px" }}>
-            <div style={{ fontFamily: MONO, fontSize: "12px", color: "var(--text-faint)", marginBottom: "4px" }}>
-              {weekLabel}
-            </div>
-            <div style={{ fontSize: "22px", fontWeight: 600, letterSpacing: "-0.015em" }}>{topicName}</div>
-          </div>
-
           {/* No detail yet — the explicit-generation empty state (Phase 4).
               A generated roadmap ships topics with no content on purpose, so
               nothing spends an AI call until the user asks for one. */}
-          {!detail && (
+          {/* Generating, first time: hold the shape of what's coming. */}
+          {!detail && detailBusy && <DetailSkeleton />}
+
+          {!detail && !detailBusy && (
             <div
               data-testid="detail-empty"
               style={{
-                border: "1px dashed var(--border)",
-                borderRadius: "12px",
-                padding: "36px 28px",
-                marginBottom: "24px",
-                textAlign: "center",
+                borderTop: "1px solid var(--border)",
+                borderBottom: "1px solid var(--border)",
+                padding: "32px 0",
+                marginBottom: "40px",
               }}
             >
-              <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "6px" }}>
-                No study material yet
+              <div style={{ fontFamily: "var(--font-serif)", fontSize: "22px", marginBottom: "8px" }}>
+                No study material yet.
               </div>
               <div
                 style={{
@@ -280,8 +259,8 @@ export default function TopicStudy({
                   color: "var(--text-muted)",
                   lineHeight: 1.6,
                   marginBottom: "18px",
-                  maxWidth: "460px",
-                  margin: "0 auto 18px",
+                  maxWidth: "56ch",
+                  margin: "0 0 20px",
                 }}
               >
                 Generate the mental model, ranked resources and from-scratch exercises for{" "}
@@ -291,15 +270,17 @@ export default function TopicStudy({
                 onClick={generateDetail}
                 disabled={detailBusy}
                 data-testid="generate-detail"
+                className="btn-ink"
                 style={{
                   padding: "10px 18px",
-                  borderRadius: "9px",
-                  border: "1px solid var(--accent)",
-                  background: detailBusy ? "var(--accent-soft)" : "var(--accent)",
-                  color: detailBusy ? "var(--accent)" : "oklch(0.99 0 0)",
-                  fontSize: "13.5px",
-                  fontWeight: 600,
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "var(--ink)",
+                  color: "var(--on-ink)",
                   font: "inherit",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  opacity: detailBusy ? 0.6 : 1,
                   cursor: detailBusy ? "wait" : "pointer",
                 }}
               >
@@ -317,47 +298,39 @@ export default function TopicStudy({
           )}
 
           {/* Mental model */}
+          {/* Regenerating: the old material stays readable but visibly stale. */}
+          {detail && detailBusy && (
+            <div role="status" style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "var(--text-muted)", marginBottom: "20px" }}>
+              <span className="skel" style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--accent)" }} />
+              Regenerating study material…
+            </div>
+          )}
+
           {detail && (
-            <div
-              style={{
-                background: "var(--accent-soft)",
-                border: "1px solid var(--accent-line)",
-                borderRadius: "12px",
-                padding: "18px 20px",
-                marginBottom: "24px",
-              }}
-            >
+            <div style={{ marginBottom: "44px", ...staleStyle }}>
               <div
                 style={{
                   display: "flex",
                   alignItems: "baseline",
                   justifyContent: "space-between",
                   gap: "12px",
-                  marginBottom: "8px",
+                  marginBottom: "10px",
                 }}
               >
-                <div
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    color: "var(--accent)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  Mental model
-                </div>
+                <SectionLabel noMargin>Mental model</SectionLabel>
                 {/* Where this content came from. Shown, not hidden — a template
                     standing in for a failed generation is information the user
                     is entitled to. */}
                 <span
                   data-testid="detail-source"
-                  style={{ fontFamily: MONO, fontSize: "10.5px", color: "var(--text-faint)" }}
+                  style={{ fontSize: "12.5px", color: "var(--text-faint)" }}
                 >
                   {sourceLabel(detail.source)}
                 </span>
               </div>
-              <div style={{ fontSize: "14.5px", lineHeight: 1.6 }}>{detail.model}</div>
+              <div style={{ fontFamily: "var(--font-serif)", fontSize: "19px", lineHeight: 1.6, textWrap: "pretty" }}>
+                {detail.model}
+              </div>
               {detailNote && (
                 <div data-testid="detail-note" style={{ fontSize: "12.5px", color: "var(--amber)", marginTop: "10px" }}>
                   {detailNote}
@@ -368,23 +341,21 @@ export default function TopicStudy({
 
           {/* Resources */}
           {detail && (
-          <div style={{ marginBottom: "24px" }}>
-            <SectionLabel>Resources · ranked</SectionLabel>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ marginBottom: "44px", ...staleStyle }}>
+            <SectionLabel>Resources, ranked</SectionLabel>
+            <div style={{ borderTop: "1px solid var(--border)" }}>
               {resources.map((r, i) => (
                 <div
                   key={i}
                   style={{
                     display: "flex",
-                    gap: "14px",
-                    alignItems: "center",
-                    background: "var(--panel)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    padding: "12px 16px",
+                    gap: "16px",
+                    alignItems: "baseline",
+                    borderBottom: "1px solid var(--border)",
+                    padding: "14px 0",
                   }}
                 >
-                  <div style={{ fontFamily: MONO, fontSize: "15px", fontWeight: 600, color: "var(--accent)", flex: "0 0 auto" }}>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: "18px", color: "var(--text-faint)", flex: "0 0 18px" }}>
                     {i + 1}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -402,7 +373,7 @@ export default function TopicStudy({
                           : "Not in Prep's corpus — this opens a web search for the title, not a link the model produced."
                       }
                       style={{
-                        fontSize: "14px",
+                        fontSize: "15px",
                         fontWeight: 500,
                         // A vetted destination reads as a real link; a search
                         // reads as a lead to follow. Different promises, so they
@@ -416,8 +387,7 @@ export default function TopicStudy({
                       {!r.url && (
                         <span
                           style={{
-                            fontFamily: MONO,
-                            fontSize: "10.5px",
+                            fontSize: "12px",
                             color: "var(--text-faint)",
                             marginLeft: "6px",
                           }}
@@ -426,7 +396,7 @@ export default function TopicStudy({
                         </span>
                       )}
                     </a>
-                    <div style={{ fontSize: "12px", color: "var(--text-faint)", fontFamily: MONO }}>{r.meta}</div>
+                    <div style={{ fontSize: "12.5px", color: "var(--text-faint)", marginTop: "2px" }}>{r.meta}</div>
                   </div>
 
                   {/* The positive case, stated rather than implied. Without it a
@@ -437,18 +407,7 @@ export default function TopicStudy({
                     <span
                       data-testid="verified-chip"
                       title="Retrieved from Prep's hand-curated corpus. The model ranked it; it did not invent it."
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: "10.5px",
-                        color: "var(--green)",
-                        background: "var(--green-soft)",
-                        border: "1px solid var(--green)",
-                        borderRadius: "5px",
-                        padding: "2px 7px",
-                        flex: "0 0 auto",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                      }}
+                      style={{ fontSize: "12.5px", fontWeight: 500, color: "var(--green)", flex: "0 0 auto" }}
                     >
                       Verified
                     </span>
@@ -460,33 +419,19 @@ export default function TopicStudy({
                     <span
                       data-testid="unverified-chip"
                       title="Generated from the model's memory — no vetted source in the corpus matched this topic, so nothing has checked that this document exists. The title links to a web search, not to a URL the model produced."
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: "10.5px",
-                        color: "var(--amber)",
-                        background: "var(--amber-soft)",
-                        border: "1px solid var(--amber)",
-                        borderRadius: "5px",
-                        padding: "2px 7px",
-                        flex: "0 0 auto",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.04em",
-                      }}
+                      style={{ fontSize: "12.5px", fontWeight: 500, color: "var(--amber)", flex: "0 0 auto" }}
                     >
                       Unverified
                     </span>
                   )}
                   <span
                     style={{
-                      fontFamily: MONO,
-                      fontSize: "10.5px",
+                      fontSize: "12px",
                       color: tagColor(r.tag),
                       border: "1px solid var(--border)",
-                      borderRadius: "5px",
-                      padding: "2px 7px",
+                      borderRadius: "999px",
+                      padding: "1px 9px",
                       flex: "0 0 auto",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
                     }}
                   >
                     {r.tag}
@@ -499,19 +444,17 @@ export default function TopicStudy({
 
           {/* Exercises */}
           {detail && (
-          <div style={{ marginBottom: "24px" }}>
+          <div style={{ marginBottom: "44px", ...staleStyle }}>
             <SectionLabel>From scratch</SectionLabel>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div style={{ borderTop: "1px solid var(--border)" }}>
               {exercises.map((ex, i) => (
                 <div
                   key={i}
                   style={{
                     display: "flex",
-                    gap: "12px",
-                    background: "var(--panel)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    padding: "14px 16px",
+                    gap: "14px",
+                    borderBottom: "1px solid var(--border)",
+                    padding: "14px 0",
                   }}
                 >
                   <svg
@@ -521,13 +464,13 @@ export default function TopicStudy({
                     fill="none"
                     stroke="var(--text-faint)"
                     strokeWidth={1.5}
-                    style={{ marginTop: "2px", flex: "0 0 auto" }}
+                    style={{ marginTop: "3px", flex: "0 0 auto" }}
                   >
                     <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" />
                   </svg>
                   <div>
-                    <div style={{ fontSize: "14px", fontWeight: 500, marginBottom: "2px" }}>{ex.title}</div>
-                    <div style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: 1.5 }}>{ex.desc}</div>
+                    <div style={{ fontSize: "15px", fontWeight: 500, marginBottom: "3px" }}>{ex.title}</div>
+                    <div style={{ fontSize: "14px", color: "var(--text-muted)", lineHeight: 1.55 }}>{ex.desc}</div>
                   </div>
                 </div>
               ))}
@@ -539,7 +482,7 @@ export default function TopicStudy({
           <div>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "12px" }}>
               <SectionLabel noMargin>Your notes</SectionLabel>
-              <span style={{ fontFamily: MONO, fontSize: "11px", color: "var(--text-faint)" }}>
+              <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>
                 {saveState === "saving" ? "saving…" : saveState === "saved" ? "saved" : ""}
               </span>
             </div>
@@ -547,32 +490,31 @@ export default function TopicStudy({
               value={note}
               onChange={(e) => onNoteChange(e.target.value)}
               placeholder="What clicked, what didn't, the one-liner you'd say in the interview…"
-              rows={6}
+              rows={8}
               style={{
                 width: "100%",
                 resize: "vertical",
                 background: "var(--panel)",
                 border: "1px solid var(--border)",
                 borderRadius: "10px",
-                padding: "14px 16px",
+                padding: "16px 18px",
                 color: "var(--text)",
-                font: "inherit",
-                fontSize: "14px",
+                fontFamily: "var(--font-serif)",
+                fontSize: "17px",
                 lineHeight: 1.6,
-                outline: "none",
               }}
             />
           </div>
         </div>
 
         {/* Right column: sticky kill-criterion / mastery card */}
-        <div style={{ position: "sticky", top: 0, display: "flex", flexDirection: "column", gap: "14px" }}>
+        <div style={{ position: "sticky", top: "24px", display: "flex", flexDirection: "column", gap: "32px" }}>
           <div
             style={{
               background: mastered ? "var(--green-soft)" : "var(--panel)",
-              border: "1px solid " + (mastered ? "var(--green)" : "var(--border)"),
+              border: "1px solid " + (mastered ? "var(--green)" : "var(--border-strong)"),
               borderRadius: "12px",
-              padding: "18px",
+              padding: "20px",
               transition: "background 0.2s ease, border-color 0.2s ease",
             }}
           >
@@ -592,14 +534,14 @@ export default function TopicStudy({
                 data-testid="kill-criterion"
                 aria-label="Mark this topic mastered"
                 style={{
-                  width: "28px",
-                  height: "28px",
+                  width: "26px",
+                  height: "26px",
                   flex: "0 0 auto",
-                  borderRadius: "8px",
+                  borderRadius: "7px",
                   cursor: "pointer",
-                  border: "1px solid " + (mastered ? "var(--green)" : "var(--border-strong)"),
+                  border: "1.5px solid " + (mastered ? "var(--green)" : "var(--text-faint)"),
                   background: mastered ? "var(--green)" : "transparent",
-                  color: "oklch(0.99 0 0)",
+                  color: "var(--on-ink)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -613,26 +555,18 @@ export default function TopicStudy({
                 )}
               </button>
               <div>
-                <div
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    color: "var(--red)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    marginBottom: "6px",
-                  }}
-                >
+                <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--red)", marginBottom: "6px" }}>
                   Kill criterion
                 </div>
-                <div style={{ fontSize: "13.5px", lineHeight: 1.55 }}>{killCriterion}</div>
+                <div style={{ fontFamily: "var(--font-serif)", fontSize: "17px", lineHeight: 1.45 }}>{killCriterion}</div>
               </div>
             </div>
             <div
               style={{
-                marginTop: "14px",
-                fontFamily: MONO,
-                fontSize: "11.5px",
+                marginTop: "16px",
+                paddingTop: "12px",
+                borderTop: "1px solid var(--border)",
+                fontSize: "12.5px",
                 color: mastered ? "var(--green)" : "var(--text-faint)",
               }}
             >
@@ -644,26 +578,8 @@ export default function TopicStudy({
               material runs on the reasoning tier (rare, high-value) and recall
               cards on the classification tier (frequent, cheap). Keeping them
               separate is also what keeps each press to exactly one call. */}
-          <div
-            style={{
-              background: "var(--panel)",
-              border: "1px solid var(--border)",
-              borderRadius: "12px",
-              padding: "16px 18px",
-            }}
-          >
-            <div
-              style={{
-                fontFamily: MONO,
-                fontSize: "11px",
-                color: "var(--text-faint)",
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-                marginBottom: "10px",
-              }}
-            >
-              Generate
-            </div>
+          <div>
+            <SectionLabel>Generate</SectionLabel>
 
             {detail && (
               <button
@@ -694,7 +610,7 @@ export default function TopicStudy({
               </div>
             )}
 
-            <div style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: "10px", lineHeight: 1.5 }}>
+            <div style={{ fontSize: "12.5px", color: "var(--text-faint)", marginTop: "12px", lineHeight: 1.5 }}>
               Each press spends one call from your daily cap.{" "}
               <Link href="/usage" style={{ color: "var(--accent)" }}>
                 See usage
@@ -707,17 +623,53 @@ export default function TopicStudy({
   );
 }
 
+/**
+ * Placeholder for the first generation (one reasoning-tier call, typically a few
+ * seconds up to ~15). Mirrors the three sections that will replace it, so the
+ * page doesn't jump when they land, and says in words what is happening — a
+ * pulse alone doesn't tell you whether to wait or retry.
+ */
+function DetailSkeleton() {
+  return (
+    <div data-testid="detail-generating" aria-busy="true" style={{ marginBottom: "44px" }}>
+      <div role="status" style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "22px" }}>
+        Writing the mental model, ranking resources and drafting exercises — usually 5–15 seconds.
+      </div>
+      <SectionLabel>Mental model</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "44px" }}>
+        {["100%", "96%", "88%", "55%"].map((w, i) => (
+          <div key={i} className="skel" style={{ width: w, height: "18px" }} />
+        ))}
+      </div>
+      <SectionLabel>Resources, ranked</SectionLabel>
+      <div style={{ borderTop: "1px solid var(--border)", marginBottom: "44px" }}>
+        {["62%", "48%", "56%"].map((w, i) => (
+          <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border)" }}>
+            <div className="skel" style={{ width: w, height: "15px" }} />
+            <div className="skel" style={{ width: "30%", height: "11px", marginTop: "8px" }} />
+          </div>
+        ))}
+      </div>
+      <SectionLabel>From scratch</SectionLabel>
+      <div style={{ borderTop: "1px solid var(--border)" }}>
+        {["70%", "58%"].map((w, i) => (
+          <div key={i} style={{ padding: "16px 0", borderBottom: "1px solid var(--border)" }}>
+            <div className="skel" style={{ width: w, height: "15px" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SectionLabel({ children, noMargin }: { children: React.ReactNode; noMargin?: boolean }) {
   return (
     <div
       style={{
         fontSize: "13px",
         fontWeight: 600,
-        textTransform: "uppercase",
-        letterSpacing: "0.04em",
         color: "var(--text-muted)",
-        marginBottom: noMargin ? 0 : "12px",
-        fontFamily: MONO,
+        marginBottom: noMargin ? 0 : "10px",
       }}
     >
       {children}

@@ -130,7 +130,7 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <Header
+      <Header maxWidth={1000}
         title={roadmap.title}
         subtitle={roadmap.subtitle ?? undefined}
         tag={
@@ -139,20 +139,11 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
                 the print view is a real, shareable, bookmarkable URL
                 (/roadmap/[id]/print), so it should behave like one: middle-click
                 to open in a tab, right-click to copy. */}
-            <Link href={`/roadmap/${id}/print`} style={exportLinkStyle}>
+            <Link href={`/roadmap/${id}/print`} className="nav-link" style={exportLinkStyle}>
               Export / Print
             </Link>
-            <span
-              style={{
-                fontFamily: "'IBM Plex Mono',monospace",
-                fontSize: "11px",
-                color: st.color,
-                background: st.soft,
-                border: "1px solid " + st.color,
-                borderRadius: "6px",
-                padding: "4px 10px",
-              }}
-            >
+            <span style={{ display: "flex", alignItems: "center", gap: "7px", fontSize: "13px", color: st.color }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: st.color }} />
               {st.label}
             </span>
           </>
@@ -161,47 +152,45 @@ export default async function RoadmapPage({ params }: { params: Promise<{ id: st
       <ContentArea maxWidth={1000}>
         {mismatched && <TemplateMismatchNotice role={role} />}
 
-        {/* Stat tiles */}
+        {/* Stat row — figures set in the serif, divided by hairlines, no boxes. */}
         <div
-          className="grid-4"
+          className="grid-4 stat-row"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "12px",
-            marginBottom: "22px",
+            borderTop: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border)",
+            marginBottom: "40px",
           }}
         >
-          {tiles.map((t) => (
+          {tiles.map((t, i) => (
             <div
               key={t.label}
               style={{
-                background: "var(--panel)",
-                border: "1px solid var(--border)",
-                borderRadius: "10px",
-                padding: "14px 16px",
+                padding: "18px 20px 18px " + (i === 0 ? "0" : "20px"),
+                borderLeft: i === 0 ? "none" : "1px solid var(--border)",
               }}
             >
+              <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{t.label}</div>
               <div
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: "11px",
-                  color: "var(--text-faint)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
+                  fontFamily: "var(--font-serif)",
+                  fontSize: "34px",
+                  fontWeight: 500,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.1,
+                  marginTop: "6px",
                 }}
               >
-                {t.label}
-              </div>
-              <div style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "-0.02em", marginTop: "2px" }}>
                 {t.value}
               </div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>{t.sub}</div>
+              <div style={{ fontSize: "12.5px", color: "var(--text-faint)", marginTop: "4px" }}>{t.sub}</div>
             </div>
           ))}
         </div>
 
         {/* Week accordions */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        <div style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border)" }}>
           {weekData.map((w) => (
             <WeekAccordion key={w.id} roadmapId={id} week={w} defaultOpen={w.n === 1} />
           ))}
@@ -230,10 +219,10 @@ function TemplateMismatchNotice({ role }: { role: string }) {
       data-testid="template-mismatch"
       style={{
         background: "var(--amber-soft)",
-        border: "1px solid var(--amber)",
-        borderRadius: "12px",
-        padding: "16px 18px",
-        marginBottom: "18px",
+        borderLeft: "2px solid var(--amber)",
+        borderRadius: "0 8px 8px 0",
+        padding: "14px 18px",
+        marginBottom: "28px",
         display: "flex",
         gap: "14px",
         alignItems: "flex-start",
@@ -241,21 +230,15 @@ function TemplateMismatchNotice({ role }: { role: string }) {
     >
       <div
         style={{
-          fontFamily: "'IBM Plex Mono',monospace",
-          fontSize: "11px",
+          fontSize: "13px",
           fontWeight: 600,
           color: "var(--amber)",
-          background: "var(--bg)",
-          border: "1px solid var(--amber)",
-          borderRadius: "6px",
-          padding: "4px 10px",
-          letterSpacing: "0.05em",
           flex: "0 0 auto",
           marginTop: "1px",
           whiteSpace: "nowrap",
         }}
       >
-        TEMPLATE MISMATCH
+        Template mismatch
       </div>
       <div style={{ fontSize: "13.5px", lineHeight: 1.6, textWrap: "pretty" }}>
         AI generation wasn&apos;t available when this roadmap was created, so it was built from
@@ -270,12 +253,11 @@ function TemplateMismatchNotice({ role }: { role: string }) {
 type StatTile = { label: string; value: string; sub: string };
 
 const exportLinkStyle = {
-  fontFamily: "'IBM Plex Mono',monospace",
-  fontSize: "11px",
+  fontSize: "13px",
+  fontWeight: 500,
   color: "var(--text-muted)",
-  background: "var(--bg-elevated)",
   border: "1px solid var(--border-strong)",
-  borderRadius: "6px",
-  padding: "4px 10px",
+  borderRadius: "8px",
+  padding: "7px 12px",
   textDecoration: "none",
 } as const;

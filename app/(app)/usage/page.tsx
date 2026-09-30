@@ -8,7 +8,7 @@ import { startOfUtcDay } from "@/lib/ai/gateway";
 
 export const dynamic = "force-dynamic";
 
-const MONO = "'IBM Plex Mono',monospace";
+const MONO = "var(--font-mono)";
 
 /**
  * AI usage — the internal cost readout (Phase 4).
@@ -56,7 +56,7 @@ export default async function UsagePage() {
 
   return (
     <>
-      <Header
+      <Header maxWidth={1000}
         title="AI usage"
         subtitle={
           truncated
@@ -66,16 +66,22 @@ export default async function UsagePage() {
         tag={
           <span
             style={{
-              fontFamily: MONO,
-              fontSize: "11px",
-              color: provider === "none" ? "var(--amber)" : "var(--accent)",
-              background: provider === "none" ? "var(--amber-soft)" : "var(--accent-soft)",
-              border: "1px solid " + (provider === "none" ? "var(--amber)" : "var(--accent)"),
-              borderRadius: "6px",
-              padding: "4px 10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "7px",
+              fontSize: "13px",
+              color: provider === "none" ? "var(--amber)" : "var(--text-muted)",
             }}
           >
-            {provider === "none" ? "AI OFF" : `${provider} · ${billing}`}
+            <span
+              style={{
+                width: "7px",
+                height: "7px",
+                borderRadius: "50%",
+                background: provider === "none" ? "var(--amber)" : "var(--green)",
+              }}
+            />
+            {provider === "none" ? "AI off" : `${provider} · ${billing}`}
           </span>
         }
       />
@@ -84,29 +90,27 @@ export default async function UsagePage() {
         <div
           data-testid="cap-meter"
           style={{
-            background: "var(--panel)",
-            border: "1px solid " + (remaining === 0 ? "var(--red)" : "var(--border)"),
-            borderRadius: "12px",
-            padding: "18px 20px",
-            marginBottom: "22px",
+            borderTop: "1px solid " + (remaining === 0 ? "var(--red)" : "var(--border)"),
+            paddingTop: "16px",
+            marginBottom: "48px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "10px" }}>
-            <div style={{ fontSize: "13px", fontWeight: 600 }}>Daily call cap</div>
-            <div style={{ fontFamily: MONO, fontSize: "13px", color: remaining === 0 ? "var(--red)" : "var(--text-muted)" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "12px" }}>
+            <div style={{ fontSize: "14px", fontWeight: 600 }}>Daily call cap</div>
+            <div style={{ fontSize: "14px", color: remaining === 0 ? "var(--red)" : "var(--text-muted)" }}>
               <span data-testid="cap-used">{usedToday}</span> / {DAILY_CALL_CAP} today
             </div>
           </div>
-          <div style={{ height: "8px", borderRadius: "4px", background: "var(--bg-elevated)", overflow: "hidden" }}>
+          <div style={{ height: "3px", borderRadius: "2px", background: "var(--border)", overflow: "hidden" }}>
             <div
               style={{
                 width: `${capPct}%`,
                 height: "100%",
-                background: remaining === 0 ? "var(--red)" : capPct > 75 ? "var(--amber)" : "var(--accent)",
+                background: remaining === 0 ? "var(--red)" : capPct > 75 ? "var(--amber)" : "var(--ink)",
               }}
             />
           </div>
-          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px", lineHeight: 1.5 }}>
+          <div style={{ fontSize: "13px", color: "var(--text-faint)", marginTop: "10px", lineHeight: 1.5 }}>
             {remaining === 0 ? (
               <>
                 Cap reached. Generation falls back to seeded content until midnight UTC — nothing is
@@ -126,8 +130,18 @@ export default async function UsagePage() {
         ) : (
           <>
             {/* Stat tiles */}
-            <div className="grid-4" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "22px" }}>
+            <div
+              className="grid-4 stat-row"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                borderTop: "1px solid var(--border)",
+                borderBottom: "1px solid var(--border)",
+                marginBottom: "48px",
+              }}
+            >
               <StatTile
+                first
                 testId="stat-per-roadmap"
                 label="$ / roadmap"
                 value={s.costPerRoadmapUsd === null ? "—" : usd(s.costPerRoadmapUsd)}
@@ -168,15 +182,13 @@ export default async function UsagePage() {
             <div
               data-testid="cost-panel"
               style={{
-                background: "var(--panel)",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                padding: "18px 20px",
-                marginBottom: "22px",
+                borderTop: "1px solid var(--border)",
+                paddingTop: "16px",
+                marginBottom: "48px",
               }}
             >
-              <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "14px" }}>Cost</div>
-              <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "16px" }}>Cost</div>
+              <div className="grid-3" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px" }}>
                 <Figure
                   label="Actually charged"
                   value={usd(s.actualUsd)}
@@ -201,12 +213,14 @@ export default async function UsagePage() {
               </div>
               <div
                 style={{
-                  fontSize: "12.5px",
+                  fontSize: "13.5px",
                   color: "var(--text-muted)",
-                  lineHeight: 1.6,
-                  marginTop: "14px",
-                  paddingTop: "14px",
-                  borderTop: "1px solid var(--border)",
+                  lineHeight: 1.65,
+                  marginTop: "20px",
+                  padding: "14px 18px",
+                  background: "var(--bg-sunken)",
+                  borderRadius: "10px",
+                  maxWidth: "78ch",
                 }}
               >
                 <b>Read this carefully.</b> On the free tier the charged column is $0.00 and so is any
@@ -221,17 +235,15 @@ export default async function UsagePage() {
             {/* Per-route breakdown */}
             <div
               style={{
-                background: "var(--panel)",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                padding: "18px 20px",
+                borderTop: "1px solid var(--border)",
+                paddingTop: "16px",
                 overflowX: "auto",
               }}
             >
-              <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "14px" }}>By route</div>
+              <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "12px" }}>By route</div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                 <thead>
-                  <tr style={{ color: "var(--text-faint)", fontFamily: MONO, fontSize: "11px", textTransform: "uppercase" }}>
+                  <tr style={{ color: "var(--text-faint)", fontSize: "12.5px" }}>
                     <th style={th}>Route</th>
                     <th style={thRight}>Calls</th>
                     <th style={thRight}>Tokens in</th>
@@ -291,13 +303,21 @@ function Figure({
 }) {
   return (
     <div>
-      <div style={{ fontFamily: MONO, fontSize: "11px", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        {label}
-      </div>
-      <div data-testid={testId} style={{ fontSize: "20px", fontWeight: 700, letterSpacing: "-0.02em", marginTop: "4px", color: valueColor }}>
+      <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{label}</div>
+      <div
+        data-testid={testId}
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontSize: "28px",
+          fontWeight: 500,
+          letterSpacing: "-0.02em",
+          marginTop: "4px",
+          color: valueColor,
+        }}
+      >
         {value}
       </div>
-      <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>{note}</div>
+      <div style={{ fontSize: "12.5px", color: "var(--text-faint)", marginTop: "2px" }}>{note}</div>
     </div>
   );
 }
@@ -308,50 +328,61 @@ function StatTile({
   sub,
   valueColor,
   testId,
+  first,
 }: {
   label: string;
   value: string;
   sub: string;
   valueColor?: string;
   testId?: string;
+  first?: boolean;
 }) {
   return (
     <div
       data-testid={testId}
-      style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "10px", padding: "14px 16px" }}
+      style={{
+        padding: first ? "18px 20px 18px 0" : "18px 20px",
+        borderLeft: first ? "none" : "1px solid var(--border)",
+      }}
     >
-      <div style={{ fontFamily: MONO, fontSize: "11px", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        {label}
-      </div>
+      <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{label}</div>
       <div
         data-testid={testId ? `${testId}-value` : undefined}
-        style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "-0.02em", marginTop: "4px", color: valueColor }}
+        style={{
+          fontFamily: "var(--font-serif)",
+          fontSize: "30px",
+          fontWeight: 500,
+          letterSpacing: "-0.02em",
+          lineHeight: 1.1,
+          marginTop: "6px",
+          color: valueColor,
+        }}
       >
         {value}
       </div>
-      <div style={{ fontSize: "12px", marginTop: "2px", color: "var(--text-muted)" }}>{sub}</div>
+      <div style={{ fontSize: "12.5px", marginTop: "4px", color: "var(--text-faint)" }}>{sub}</div>
     </div>
   );
 }
 
 function EmptyState() {
   return (
-    <div style={{ border: "1px dashed var(--border)", borderRadius: "12px", padding: "48px 28px", textAlign: "center" }}>
-      <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "6px" }}>No AI calls yet</div>
-      <div style={{ fontSize: "13.5px", color: "var(--text-muted)", marginBottom: "18px", lineHeight: 1.6 }}>
+    <div style={{ borderTop: "1px solid var(--border)", padding: "40px 0", maxWidth: "60ch" }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: "24px", marginBottom: "8px" }}>No AI calls yet.</div>
+      <div style={{ fontSize: "15px", color: "var(--text-muted)", marginBottom: "24px", lineHeight: 1.6 }}>
         Every generation writes one row per provider dispatch — including the ones that failed
         validation. Generate a roadmap, or open a topic and generate its study material, and the
         tokens and projected cost show up here.
       </div>
       <Link
         href="/onboarding"
+        className="btn-ink"
         style={{
           padding: "10px 18px",
-          borderRadius: "9px",
-          border: "1px solid var(--accent)",
-          background: "var(--accent)",
-          color: "oklch(0.99 0 0)",
-          fontSize: "13.5px",
+          borderRadius: "8px",
+          background: "var(--ink)",
+          color: "var(--on-ink)",
+          fontSize: "14px",
           fontWeight: 600,
           textDecoration: "none",
         }}

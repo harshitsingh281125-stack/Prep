@@ -892,6 +892,36 @@ object known at build time; `generateMetadata` is an async function that receive
 `params`/`searchParams` and can fetch. Use the second when the title depends on the
 row you're rendering.
 
+## 25. Pending navigation without `loading.tsx` — `useTransition` + `router.push`, and `useLinkStatus` *(added: redesign, 2026-09-28)*
+
+**What.** Two ways to know a client-side navigation is still in flight:
+- Wrap `router.push()` in React's `startTransition`. The App Router performs the
+  navigation *as a transition*, so the `isPending` flag from `useTransition()` stays
+  `true` until the new page has rendered, then flips back on its own.
+- For a `<Link>`, `useLinkStatus()` (from `next/link`, Next 15.3+) returns
+  `{ pending }` for **the nearest parent `<Link>`**. It only works in a component
+  rendered *inside* that link.
+
+**Why, as a React dev.** Plain React has no idea a route change is pending, and in
+the App Router a click on a slow server-rendered page leaves you looking at the
+*old* page until the new one is ready. `loading.tsx` (§21) is the usual fix, but it
+comes with a cost.
+
+**Where in Prep.** `/roadmap/[id]` and the topic route **must not** have a
+`loading.tsx`. Streaming sends the `200` before the page can call `notFound()`, and
+that status code is what the RLS tests assert (§21, memory.md 2026-08-27). So those
+two routes get feedback from the *thing you clicked* instead:
+- `components/library/RoadmapCard.tsx` and `TopicRow` in
+  `components/roadmap/WeekAccordion.tsx` use `startNavigation(() => router.push(...))`
+  and dim the row / swap "study →" for "opening…" while `navigating` is true.
+- `components/shell/PendingLink.tsx` wraps the Topic screen's "← Roadmap" link;
+  its inner `Label` calls `useLinkStatus()`.
+
+**Interview Q.** *"How do you show a loading state for a route that can't have a
+`loading.tsx`?"* → Put the pending state on the trigger: `useTransition` around
+`router.push`, or `useLinkStatus` under a `<Link>`. Neither changes how the server
+responds, so a 404 is still a 404, and the status code stays honest.
+
 ---
 
 ## Concepts still to come (added as we build)

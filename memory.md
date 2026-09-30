@@ -1498,3 +1498,27 @@
   **TEMPLATE MISMATCH** notice on both the Roadmap screen and the print-out.
   **Fullstack is deliberately NOT flagged.** The catalog serves it in part, and a
   warning that fires on a mostly-correct plan is a warning people learn to ignore.
+
+- **2026-09-28 · Look: "match the pasted source verbatim" → an owner-requested redesign.**
+  *(Supersedes Rule 20's old wording and design.md §1–5.)*
+  **What was decided before:** the generated design source was the UI source of
+  truth, copied token-for-token, so the build could never drift from a reviewed look.
+  **Why it changed:** the source itself was the problem — it read as AI-generated.
+  The tells were specific, which is what made them fixable: indigo accent on
+  blue-grey neutrals, IBM Plex Mono UPPERCASE eyebrows on every label, every
+  element in its own bordered card (so nothing had more weight than anything
+  else), soft-tinted status chips everywhere, dashed empty states, and a page
+  title in a full-width bar while the content sat in a centred column, so the two
+  never shared a left edge.
+  **What shipped:** a "study notebook" direction. Newsreader serif for the reading
+  surfaces (titles, figures, questions, kill criteria, notes), Instrument Sans for
+  UI, mono only for real data. Warm paper/charcoal neutrals. Primary actions in
+  **ink** (`--ink`/`--on-ink`), so the accent is a signal, not paint. Lists are
+  rows between hairlines; alerts are a left rule; status is a dot + word. The
+  header moved inside the scroll container and takes the content's `maxWidth`.
+  **Cheap because of an earlier decision:** every colour already went through a
+  token (Rule 21), so the palette swap was one file. The structural changes (boxes
+  → rows) were per-screen, and every `data-testid` and every string a spec
+  asserts on was kept. **Not touched:** the print view (its own spec and E2E), and
+  the `detailSourceMeta` labels went to sentence case ("No content", "Vetted") —
+  the unit test was updated to match, since the label is the display string.

@@ -16,10 +16,10 @@ describe("detailSourceMeta", () => {
   });
 
   it("labels each source with one scannable word", () => {
-    expect(detailSourceMeta("rag").label).toBe("VETTED");
+    expect(detailSourceMeta("rag").label).toBe("Vetted");
     expect(detailSourceMeta("ai").label).toBe("AI");
-    expect(detailSourceMeta("seed").label).toBe("TEMPLATE");
-    expect(detailSourceMeta(null).label).toBe("NO CONTENT");
+    expect(detailSourceMeta("seed").label).toBe("Template");
+    expect(detailSourceMeta(null).label).toBe("No content");
   });
 
   it("treats null as 'not generated' — the ungenerated state is shown, not omitted", () => {
@@ -37,7 +37,7 @@ describe("detailSourceMeta", () => {
     // content" rather than being displayed raw or treated as vetted.
     for (const bogus of ["RAG", "grounded", "", "null", "manual"]) {
       const m = detailSourceMeta(bogus as unknown as DetailSource);
-      expect(m.label).toBe("NO CONTENT");
+      expect(m.label).toBe("No content");
       expect(m.color).toBe("var(--text-faint)");
     }
   });

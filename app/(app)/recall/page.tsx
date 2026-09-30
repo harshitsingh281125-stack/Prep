@@ -73,7 +73,7 @@ export default async function RecallPage() {
 
   return (
     <>
-      <Header title="Recall" subtitle={subtitle} />
+      <Header maxWidth={740} title="Recall" subtitle={subtitle} />
       <ContentArea maxWidth={740}>
         <RecallQueue cards={due} totalCards={totalCards ?? 0} />
       </ContentArea>

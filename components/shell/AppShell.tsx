@@ -26,7 +26,8 @@ export default function AppShell({
       <Sidebar user={user} recallDue={recallDue} />
       <main
         id="main-content"
-        style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+        className="app-main"
+        style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflowY: "auto" }}
       >
         {children}
       </main>

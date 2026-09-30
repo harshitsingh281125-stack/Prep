@@ -18,16 +18,31 @@ type Graded = {
   intervalDays: number;
 };
 
-const MONO = "'IBM Plex Mono',monospace";
+const MONO = "var(--font-mono)";
 
-const chipStyle: CSSProperties = {
-  fontFamily: MONO,
-  fontSize: "11px",
-  color: "var(--text-muted)",
-  border: "1px solid var(--border)",
-  borderRadius: "5px",
-  padding: "2px 7px",
-};
+/* Grade buttons are neutral outlines; the verdict colour lives in a small dot,
+   so a queue of ten cards isn't twenty red and green blocks. */
+function gradeStyle(isPending: boolean): CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 16px",
+    border: "1px solid var(--border-strong)",
+    background: "transparent",
+    color: "var(--text)",
+    borderRadius: "8px",
+    cursor: isPending ? "progress" : "pointer",
+    fontWeight: 500,
+    fontSize: "13.5px",
+    fontFamily: "inherit",
+    opacity: isPending ? 0.6 : 1,
+  };
+}
+
+function dot(color: string): CSSProperties {
+  return { width: "7px", height: "7px", borderRadius: "50%", background: color, flex: "0 0 7px" };
+}
 
 /**
  * The recall queue. Grading is a SERVER round-trip (/api/recall/[cardId]/grade)
@@ -86,51 +101,37 @@ export default function RecallQueue({
 
   return (
     <div>
-      {/* Header row: honesty line + the advertised schedule ladder */}
+      {/* Honesty line, the schedule ladder, and the running session score. */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: "baseline",
           justifyContent: "space-between",
-          gap: "16px",
-          marginBottom: "8px",
+          gap: "8px 24px",
           flexWrap: "wrap",
+          paddingBottom: "16px",
+          borderBottom: "1px solid var(--border)",
+          fontSize: "13px",
+          color: "var(--text-muted)",
         }}
       >
-        <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-          Spaced recall. Grade yourself honestly — a &ldquo;close enough&rdquo; is a miss.
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontFamily: MONO, fontSize: "11px", color: "var(--text-faint)", marginRight: "2px" }}>
-            SCHEDULE
-          </span>
-          {LADDER_DAYS.map((d) => (
-            <span key={d} style={chipStyle}>
-              {intervalLabel(d)}
+        <div>Grade yourself honestly — a &ldquo;close enough&rdquo; is a miss.</div>
+        <div style={{ display: "flex", gap: "16px", color: "var(--text-faint)" }}>
+          <span>
+            Accuracy{" "}
+            <span style={{ fontWeight: 600, color: accColor }} data-testid="recall-accuracy">
+              {accuracy}
             </span>
-          ))}
+          </span>
+          <span data-testid="recall-progress">
+            {doneCount} of {cards.length} graded
+          </span>
         </div>
       </div>
-
-      {/* Session stats */}
-      <div
-        style={{
-          display: "flex",
-          gap: "14px",
-          margin: "16px 0 22px",
-          fontFamily: MONO,
-          fontSize: "12px",
-        }}
-      >
-        <span style={{ color: "var(--text-muted)" }}>
-          Session accuracy{" "}
-          <span style={{ fontWeight: 600, color: accColor }} data-testid="recall-accuracy">
-            {accuracy}
-          </span>
-        </span>
-        <span style={{ color: "var(--text-faint)" }}>·</span>
-        <span style={{ color: "var(--text-muted)" }} data-testid="recall-progress">
-          {doneCount} of {cards.length} graded
+      <div style={{ fontSize: "12.5px", color: "var(--text-faint)", margin: "10px 0 8px" }}>
+        Schedule{" "}
+        <span style={{ fontFamily: MONO, fontSize: "12px" }}>
+          {LADDER_DAYS.map((d) => intervalLabel(d)).join(" → ")}
         </span>
       </div>
 
@@ -152,167 +153,123 @@ export default function RecallQueue({
       )}
 
       {/* Cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {cards.map((card) => {
+      <ol style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {cards.map((card, i) => {
           const g = graded[card.id];
           const isPending = !!pending[card.id];
           const right = g?.grade === "right";
 
           return (
-            <div
+            <li
               key={card.id}
               data-testid="recall-card"
               data-card-id={card.id}
               style={{
-                background: "var(--panel)",
-                borderRadius: "12px",
-                padding: "18px 20px",
-                border: "1px solid " + (g ? (right ? "var(--green)" : "var(--red)") : "var(--border)"),
-                opacity: g ? 0.82 : 1,
-                transition: "opacity 140ms ease, border-color 140ms ease",
+                display: "grid",
+                gridTemplateColumns: "36px minmax(0, 1fr)",
+                padding: "26px 0",
+                borderBottom: "1px solid var(--border)",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "10px",
-                  marginBottom: "12px",
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    color: "var(--text-faint)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
-                >
-                  {card.topicLabel}
-                </span>
-                <span
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "11px",
-                    color: "var(--text-faint)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "5px",
-                    padding: "2px 7px",
-                  }}
-                >
-                  {card.projectedLabel}
-                </span>
-              </div>
-
-              <div style={{ fontSize: "15.5px", lineHeight: 1.55, fontWeight: 500, textWrap: "pretty" }}>
-                {card.question}
-              </div>
-
-              {g ? (
+              <span style={{ fontFamily: MONO, fontSize: "12px", color: "var(--text-faint)", paddingTop: "6px" }}>
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <div>
                 <div
                   style={{
                     display: "flex",
-                    alignItems: "center",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
                     gap: "10px",
-                    marginTop: "14px",
-                    paddingTop: "12px",
-                    borderTop: "1px solid var(--border)",
+                    fontSize: "12.5px",
+                    color: "var(--text-faint)",
                   }}
                 >
-                  <span
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: right ? "var(--green)" : "var(--red)",
-                    }}
-                    data-testid="recall-result"
-                  >
-                    {right ? "✓ Got it" : "✗ Missed"}
-                  </span>
-                  <span
-                    style={{ fontSize: "12.5px", color: "var(--text-muted)", fontFamily: MONO }}
-                    data-testid="recall-scheduled"
-                  >
-                    {right
-                      ? `→ next review in ${g.intervalDays} ${g.intervalDays === 1 ? "day" : "days"}`
-                      : "→ reset to +1d (missed)"}
+                  <span style={{ fontWeight: 500 }}>{card.topicLabel}</span>
+                  <span style={{ fontFamily: MONO, fontSize: "12px" }} title="Next gap if you get it right">
+                    {card.projectedLabel}
                   </span>
                 </div>
-              ) : (
-                <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
-                  <button
-                    type="button"
-                    onClick={() => grade(card.id, "wrong")}
-                    disabled={isPending}
-                    data-testid="grade-wrong"
-                    style={{
-                      flex: 1,
-                      padding: "9px",
-                      border: "1px solid var(--red)",
-                      background: "var(--red-soft)",
-                      color: "var(--red)",
-                      borderRadius: "8px",
-                      cursor: isPending ? "progress" : "pointer",
-                      fontWeight: 600,
-                      fontSize: "13px",
-                      fontFamily: "inherit",
-                      opacity: isPending ? 0.6 : 1,
-                    }}
-                  >
-                    Missed it
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => grade(card.id, "right")}
-                    disabled={isPending}
-                    data-testid="grade-right"
-                    style={{
-                      flex: 1,
-                      padding: "9px",
-                      border: "1px solid var(--green)",
-                      background: "var(--green-soft)",
-                      color: "var(--green)",
-                      borderRadius: "8px",
-                      cursor: isPending ? "progress" : "pointer",
-                      fontWeight: 600,
-                      fontSize: "13px",
-                      fontFamily: "inherit",
-                      opacity: isPending ? 0.6 : 1,
-                    }}
-                  >
-                    Got it cold
-                  </button>
+
+                <div
+                  style={{
+                    fontFamily: "var(--font-serif)",
+                    fontSize: "20px",
+                    lineHeight: 1.45,
+                    marginTop: "6px",
+                    textWrap: "pretty",
+                    color: g ? "var(--text-muted)" : "var(--text)",
+                    transition: "color 140ms ease",
+                  }}
+                >
+                  {card.question}
                 </div>
-              )}
-            </div>
+
+                {g ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "16px", fontSize: "13px" }}>
+                    <span
+                      style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600, color: right ? "var(--green)" : "var(--red)" }}
+                      data-testid="recall-result"
+                    >
+                      <span style={dot(right ? "var(--green)" : "var(--red)")} />
+                      {right ? "Got it" : "Missed"}
+                    </span>
+                    <span style={{ color: "var(--text-faint)" }} data-testid="recall-scheduled">
+                      {right
+                        ? `→ next review in ${g.intervalDays} ${g.intervalDays === 1 ? "day" : "days"}`
+                        : "→ reset to +1d (missed)"}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: "10px", marginTop: "18px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="hover-row"
+                      onClick={() => grade(card.id, "right")}
+                      disabled={isPending}
+                      data-testid="grade-right"
+                      style={gradeStyle(isPending)}
+                    >
+                      <span style={dot("var(--green)")} />
+                      Got it cold
+                    </button>
+                    <button
+                      type="button"
+                      className="hover-row"
+                      onClick={() => grade(card.id, "wrong")}
+                      disabled={isPending}
+                      data-testid="grade-wrong"
+                      style={gradeStyle(isPending)}
+                    >
+                      <span style={dot("var(--red)")} />
+                      Missed it
+                    </button>
+                  </div>
+                )}
+              </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
 
       {/* No deck at all — NOT the same as "you're caught up". Says what to do
           rather than implying there is nothing to do. */}
       {cleared && totalCards === 0 && (
         <div
           style={{
-            textAlign: "center",
-            padding: "40px 24px",
-            border: "1px dashed var(--border)",
-            borderRadius: "12px",
+            padding: "40px 0",
           }}
           data-testid="recall-empty"
         >
-          <div style={{ fontSize: "15px", fontWeight: 600 }}>No recall cards yet</div>
+          <div style={{ fontFamily: "var(--font-serif)", fontSize: "22px" }}>No recall cards yet.</div>
           <div
             style={{
               fontSize: "13px",
               marginTop: "6px",
               color: "var(--text-muted)",
               lineHeight: 1.6,
-              maxWidth: "420px",
-              margin: "6px auto 0",
+              maxWidth: "52ch",
+              margin: "8px 0 0",
             }}
           >
             Spaced repetition needs questions to space out. Open a topic in your roadmap and hit{" "}
@@ -323,11 +280,11 @@ export default function RecallQueue({
 
       {cleared && totalCards > 0 && (
         <div
-          style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-muted)" }}
+          style={{ padding: "40px 0", color: "var(--text-muted)" }}
           data-testid="recall-cleared"
         >
-          <div style={{ fontSize: "15px", fontWeight: 600, color: "var(--text)" }}>Queue clear.</div>
-          <div style={{ fontSize: "13px", marginTop: "6px" }}>
+          <div style={{ fontFamily: "var(--font-serif)", fontSize: "22px", color: "var(--text)" }}>Queue clear.</div>
+          <div style={{ fontSize: "14px", marginTop: "8px" }}>
             {cards.length === 0
               ? "Nothing is due right now. Don't cram ahead — the spacing is the point."
               : "That's every card due today. Don't cram ahead — the spacing is the point."}

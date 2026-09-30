@@ -32,22 +32,20 @@ export default function NotFound() {
         background: "var(--bg)",
       }}
     >
-      <div style={{ maxWidth: "440px", textAlign: "center" }}>
-        <div
+      <div style={{ maxWidth: "440px" }}>
+        <div style={{ fontSize: "13px", color: "var(--text-faint)", fontWeight: 500 }}>Error 404</div>
+        <h1
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: "48px",
-            fontWeight: 600,
-            letterSpacing: "-0.03em",
-            color: "var(--text-faint)",
+            fontFamily: "var(--font-serif)",
+            fontSize: "40px",
+            fontWeight: 500,
+            letterSpacing: "-0.02em",
+            margin: "6px 0 12px",
           }}
         >
-          404
-        </div>
-        <h1 style={{ fontSize: "18px", fontWeight: 600, margin: "6px 0 8px" }}>
           Nothing here.
         </h1>
-        <p style={{ fontSize: "13.5px", color: "var(--text-muted)", lineHeight: 1.6, margin: "0 0 22px" }}>
+        <p style={{ fontSize: "15px", color: "var(--text-muted)", lineHeight: 1.6, margin: "0 0 28px" }}>
           Either that page doesn&apos;t exist, or it isn&apos;t yours. Prep only ever shows you your
           own roadmaps.
         </p>
@@ -56,11 +54,10 @@ export default function NotFound() {
           style={{
             display: "inline-block",
             padding: "10px 18px",
-            borderRadius: "9px",
-            border: "1px solid var(--accent)",
-            background: "var(--accent)",
-            color: "oklch(0.99 0 0)",
-            fontSize: "13.5px",
+            borderRadius: "8px",
+            background: "var(--ink)",
+            color: "var(--on-ink)",
+            fontSize: "14px",
             fontWeight: 600,
             textDecoration: "none",
           }}

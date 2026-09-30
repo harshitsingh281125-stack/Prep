@@ -36,35 +36,41 @@ export default function ThemeToggle() {
     setTheme(next);
   }
 
-  const label = theme === "dark" ? "☾ Dark" : "☀ Light";
-
   return (
     <button
       type="button"
-      className="app-theme"
+      className="app-theme nav-link"
       onClick={toggle}
-      // The visible label is "☾ Dark" — a STATE, not an action, which is
-      // ambiguous read aloud ("dark… button" could mean either). aria-label says
-      // what pressing it does; aria-pressed says which state it is in.
+      // Icon-only: aria-label says what pressing it does; aria-pressed says
+      // which state it is in. `title` gives mouse users the same hint.
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
       aria-pressed={theme === "light"}
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        gap: "8px",
-        padding: "8px",
-        marginBottom: "12px",
-        border: "1px solid var(--border)",
+        width: "28px",
+        height: "28px",
+        padding: 0,
+        border: "none",
         background: "transparent",
-        color: "var(--text-muted)",
-        borderRadius: "8px",
+        color: "var(--text-faint)",
+        borderRadius: "6px",
         cursor: "pointer",
-        fontFamily: "'IBM Plex Mono',monospace",
-        fontSize: "12px",
+        flex: "0 0 auto",
       }}
     >
-      {label}
+      {theme === "dark" ? (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+          <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+          <circle cx="8" cy="8" r="2.8" />
+          <path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M3.5 12.5l1.1-1.1M11.4 4.6l1.1-1.1" />
+        </svg>
+      )}
     </button>
   );
 }

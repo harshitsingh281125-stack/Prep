@@ -5,31 +5,46 @@
    set (Rules 20/21). Components reference `var(--token)` only — no raw hex.
    ============================================================================ */
 
-/* IBM Plex Sans (body/UI) + IBM Plex Mono (labels/metadata/numbers).
-   Loaded by family name so the design's inline `font-family:'IBM Plex Mono'`
-   styles resolve globally. */
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+/* Type system (redesign, 2026-09-28) — three families, each with one job:
+   Newsreader (serif)  → page titles, recall questions, big numbers: the "reading"
+                         voice of a study tool.
+   Instrument Sans     → all UI text.
+   JetBrains Mono      → genuine data only (intervals, counts, code). Never labels.
+   Components reference the families through --font-* so the next change is here. */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap");
 
-/* --- Color tokens (OKLCH), dark + light — verbatim from the design ---------- */
+:root {
+  --font-sans: "Instrument Sans", system-ui, sans-serif;
+  --font-serif: "Newsreader", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* --- Color tokens (OKLCH), dark + light ------------------------------------
+   Warm neutrals (hue ~75-85, near-zero chroma) instead of the old blue-grey:
+   paper in light, charcoal in dark. Primary actions are INK (--ink / --on-ink,
+   i.e. the text colour inverted), not a brand colour, so --accent can stay a
+   quiet signal for links, "due" and focus rather than painting every button. */
 [data-theme="dark"] {
-  --bg: oklch(0.165 0.006 265); --bg-sunken: oklch(0.14 0.006 265);
-  --bg-elevated: oklch(0.205 0.007 265); --panel: oklch(0.198 0.007 265);
-  --border: oklch(0.28 0.008 265); --border-strong: oklch(0.36 0.01 265);
-  --text: oklch(0.955 0.004 265); --text-muted: oklch(0.7 0.01 265); --text-faint: oklch(0.52 0.01 265);
-  --accent: oklch(0.68 0.15 264); --accent-soft: oklch(0.68 0.15 264 / 0.14); --accent-line: oklch(0.68 0.15 264 / 0.4);
-  --green: oklch(0.75 0.14 155); --green-soft: oklch(0.75 0.14 155 / 0.14);
-  --amber: oklch(0.8 0.12 78); --amber-soft: oklch(0.8 0.12 78 / 0.14);
-  --red: oklch(0.68 0.19 24); --red-soft: oklch(0.68 0.19 24 / 0.13);
+  --bg: oklch(0.185 0.004 75); --bg-sunken: oklch(0.165 0.004 75);
+  --bg-elevated: oklch(0.225 0.005 75); --panel: oklch(0.205 0.005 75);
+  --border: oklch(0.29 0.006 75); --border-strong: oklch(0.38 0.007 75);
+  --text: oklch(0.93 0.008 85); --text-muted: oklch(0.72 0.008 80); --text-faint: oklch(0.55 0.008 80);
+  --ink: oklch(0.93 0.008 85); --on-ink: oklch(0.185 0.004 75);
+  --accent: oklch(0.76 0.1 245); --accent-soft: oklch(0.76 0.1 245 / 0.13); --accent-line: oklch(0.76 0.1 245 / 0.4);
+  --green: oklch(0.76 0.12 150); --green-soft: oklch(0.76 0.12 150 / 0.13);
+  --amber: oklch(0.8 0.11 78); --amber-soft: oklch(0.8 0.11 78 / 0.13);
+  --red: oklch(0.71 0.15 28); --red-soft: oklch(0.71 0.15 28 / 0.13);
 }
 [data-theme="light"] {
-  --bg: oklch(0.99 0.002 265); --bg-sunken: oklch(0.975 0.003 265);
-  --bg-elevated: oklch(1 0 0); --panel: oklch(1 0 0);
-  --border: oklch(0.915 0.004 265); --border-strong: oklch(0.85 0.006 265);
-  --text: oklch(0.24 0.012 265); --text-muted: oklch(0.5 0.012 265); --text-faint: oklch(0.66 0.012 265);
-  --accent: oklch(0.53 0.18 264); --accent-soft: oklch(0.53 0.18 264 / 0.1); --accent-line: oklch(0.53 0.18 264 / 0.35);
-  --green: oklch(0.55 0.14 155); --green-soft: oklch(0.55 0.14 155 / 0.1);
-  --amber: oklch(0.62 0.13 72); --amber-soft: oklch(0.62 0.13 72 / 0.12);
-  --red: oklch(0.55 0.2 25); --red-soft: oklch(0.55 0.2 25 / 0.09);
+  --bg: oklch(0.984 0.004 85); --bg-sunken: oklch(0.963 0.006 85);
+  --bg-elevated: oklch(0.995 0.002 85); --panel: oklch(0.995 0.002 85);
+  --border: oklch(0.9 0.007 85); --border-strong: oklch(0.82 0.009 85);
+  --text: oklch(0.22 0.01 70); --text-muted: oklch(0.46 0.01 70); --text-faint: oklch(0.62 0.01 70);
+  --ink: oklch(0.22 0.01 70); --on-ink: oklch(0.984 0.004 85);
+  --accent: oklch(0.5 0.13 250); --accent-soft: oklch(0.5 0.13 250 / 0.09); --accent-line: oklch(0.5 0.13 250 / 0.3);
+  --green: oklch(0.52 0.12 150); --green-soft: oklch(0.52 0.12 150 / 0.1);
+  --amber: oklch(0.6 0.12 70); --amber-soft: oklch(0.6 0.12 70 / 0.12);
+  --red: oklch(0.53 0.17 28); --red-soft: oklch(0.53 0.17 28 / 0.08);
 }
 
 /* --- Base --------------------------------------------------------------------- */
@@ -39,7 +54,7 @@ html, body { margin: 0; padding: 0; }
 html {
   background: var(--bg);
   color: var(--text);
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -49,6 +64,36 @@ html {
 body { background: var(--bg); color: var(--text); }
 
 h1, h2, h3, h4, h5, h6 { letter-spacing: -0.01em; }
+
+/* Numbers line up in columns everywhere (stat rows, tables, counters). */
+body { font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--accent-soft); }
+
+/* Hover affordances — inline styles cannot express :hover, so the few
+   interactive surfaces that need one opt in by class. */
+.hover-row { transition: background 120ms ease; }
+.hover-row:hover { background: var(--bg-sunken); }
+.btn-ink { transition: opacity 120ms ease; }
+.btn-ink:hover:not(:disabled) { opacity: 0.86; }
+.nav-link { transition: color 120ms ease, background 120ms ease; }
+.nav-link:hover { color: var(--text) !important; }
+
+/* Skeleton placeholder — one pulse for every loading shape in the app (route
+   skeletons, AI generation placeholders). The global reduced-motion rule below
+   collapses it to a static block. */
+@keyframes prep-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.skel {
+  background: var(--border);
+  border-radius: 6px;
+  animation: prep-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* A navigation in flight (row clicked, page not arrived yet). */
+.is-navigating { opacity: 0.55; cursor: progress !important; }
 
 a { color: var(--accent); text-decoration: none; }
 
@@ -107,8 +152,8 @@ a { color: var(--accent); text-decoration: none; }
   z-index: 100;
   padding: 10px 16px;
   border-radius: 0 0 8px 0;
-  background: var(--accent);
-  color: oklch(0.99 0 0);
+  background: var(--ink);
+  color: var(--on-ink);
   font-size: 13px;
   font-weight: 600;
 }
@@ -213,15 +258,29 @@ a { color: var(--accent); text-decoration: none; }
     width: auto !important;
   }
 
-  /* The content area no longer owns a scroll context of its own. */
-  .app-content {
+  /* <main> no longer owns a scroll context of its own. */
+  .app-main {
     overflow-y: visible !important;
-    padding: 18px 16px !important;
+  }
+
+  .app-header {
+    padding: 28px 16px 20px !important;
+  }
+
+  .app-content {
+    padding: 0 16px 48px !important;
   }
 
   /* Four-up stat grids and the paired chart row are unreadable at phone width. */
   .grid-4 {
     grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Stat rows divide their figures with hairlines; once they wrap to two
+     columns the dividers belong on the grid, not on every cell's left edge. */
+  .stat-row > * {
+    border-left: none !important;
+    padding-left: 0 !important;
   }
 
   .grid-2 {
@@ -240,6 +299,41 @@ a { color: var(--accent); text-decoration: none; }
      mental model and the notes you came to write. */
   .grid-side {
     grid-template-columns: 1fr !important;
+  }
+
+  /* Week topics are indented under the "Week n" gutter on desktop; on a phone
+     that gutter is width the topic names need. */
+  .week-body {
+    padding-left: 0 !important;
+  }
+
+  /* Week header: the meta figures drop to their own line under the title
+     instead of squeezing it to one word per line. */
+  .week-head {
+    flex-wrap: wrap;
+    row-gap: 6px !important;
+  }
+
+  .week-meta {
+    order: 3;
+    flex: 1 0 100% !important;
+  }
+
+  /* Topic rows: the name takes the first line; source, status and "study →"
+     share the second. */
+  .topic-row {
+    flex-wrap: wrap;
+    row-gap: 4px !important;
+  }
+
+  .topic-name {
+    flex-grow: 1 !important;
+    flex-basis: calc(100% - 24px) !important;
+  }
+
+  /* ...and that second line starts under the name, not under the dot. */
+  .topic-row > [data-testid="topic-content-chip"] {
+    margin-left: 21px;
   }
 }
 

@@ -11,13 +11,11 @@ export default function NewRoadmapButton({ canCreate }: { canCreate: boolean }) 
       <span
         title="You've used all your roadmap creations. Delete one to make room."
         style={{
-          padding: "11px 20px",
-          borderRadius: "9px",
+          padding: "8px 14px",
+          borderRadius: "8px",
           border: "1px solid var(--border)",
-          background: "var(--bg-elevated)",
           color: "var(--text-faint)",
-          font: "inherit",
-          fontSize: "14px",
+          fontSize: "13.5px",
           fontWeight: 600,
           cursor: "not-allowed",
         }}
@@ -30,20 +28,19 @@ export default function NewRoadmapButton({ canCreate }: { canCreate: boolean }) 
   return (
     <Link
       href="/onboarding"
+      className="btn-ink"
       style={{
-        padding: "11px 20px",
-        borderRadius: "9px",
-        border: "1px solid var(--accent)",
-        background: "var(--accent)",
-        color: "oklch(0.99 0 0)",
-        font: "inherit",
-        fontSize: "14px",
+        padding: "8px 14px",
+        borderRadius: "8px",
+        background: "var(--ink)",
+        color: "var(--on-ink)",
+        fontSize: "13.5px",
         fontWeight: 600,
         cursor: "pointer",
         textDecoration: "none",
       }}
     >
-      New roadmap →
+      New roadmap
     </Link>
   );
 }

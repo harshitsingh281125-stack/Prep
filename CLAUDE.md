@@ -116,8 +116,9 @@ Full context lives in these docs — **read them before non-trivial work**:
   (memory.md) and fix before the phase is marked demoable. Don't advance on untested code.
 - **Log as we go:** append non-obvious decisions and every real bug fixed to
   [memory.md](./memory.md) — that's the raw material for interview stories.
-- **Design fidelity:** tokens/spacing/components come from `Prep.dc.html` via
-  design.md. Match it; don't improvise the look.
+- **Design fidelity:** tokens/type/spacing/components come from design.md (the
+  2026-09-28 "study notebook" redesign — serif titles, ink buttons, hairlines not
+  boxes, no uppercase mono eyebrows). Match it; don't improvise the look.
 - **Explain-cold test:** if a subsystem can't be explained without notes, slow
   down before moving on (recognition ≠ recall).
 - **Update [interview.md](./interview.md) when a subsystem lands.** When we finish
