@@ -7,22 +7,21 @@ import { signIn, signUp, type AuthResult } from "./actions";
 
 const labelStyle: CSSProperties = {
   display: "block",
-  fontSize: "12px",
+  fontSize: "13px",
+  fontWeight: 500,
   color: "var(--text-muted)",
   marginBottom: "6px",
-  fontFamily: "'IBM Plex Mono',monospace",
 };
 
 const inputStyle: CSSProperties = {
   width: "100%",
   padding: "10px 12px",
-  borderRadius: "9px",
-  border: "1px solid var(--border)",
-  background: "var(--bg-sunken)",
+  borderRadius: "8px",
+  border: "1px solid var(--border-strong)",
+  background: "var(--panel)",
   color: "var(--text)",
   font: "inherit",
-  fontSize: "14px",
-  outline: "none",
+  fontSize: "14.5px",
 };
 
 // Email/password wired to server actions (app/login/actions.ts). Google OAuth is
@@ -79,38 +78,20 @@ export default function LoginPage() {
         <ThemeToggle />
       </div>
 
-      <div style={{ width: "100%", maxWidth: "392px" }}>
-        {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "11px", marginBottom: "26px" }}>
-          <div
-            style={{
-              width: "34px",
-              height: "34px",
-              borderRadius: "9px",
-              background: "var(--accent)",
-              color: "oklch(0.99 0 0)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontWeight: 600,
-              fontSize: "18px",
-            }}
-          >
-            P
-          </div>
-          <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontWeight: 600, fontSize: "17px", letterSpacing: "-0.01em" }}>Prep</div>
-            <div style={{ fontSize: "11px", color: "var(--text-faint)", fontFamily: "'IBM Plex Mono',monospace" }}>
-              interview OS
-            </div>
-          </div>
+      <div style={{ width: "100%", maxWidth: "380px" }}>
+        {/* Wordmark */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "48px" }}>
+          <span style={{ fontFamily: "var(--font-serif)", fontSize: "26px", fontWeight: 500, letterSpacing: "-0.02em" }}>
+            Prep
+          </span>
+          <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>interview notebook</span>
         </div>
 
-        {/* Card */}
-        <div style={{ background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "14px", padding: "28px" }}>
-          <div style={{ fontSize: "19px", fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</div>
-          <div style={{ color: "var(--text-muted)", fontSize: "13px", marginTop: "5px", lineHeight: 1.5 }}>{subtitle}</div>
+        <div>
+          <h1 style={{ margin: 0, fontFamily: "var(--font-serif)", fontSize: "34px", fontWeight: 500, letterSpacing: "-0.02em", lineHeight: 1.15 }}>
+            {title}
+          </h1>
+          <div style={{ color: "var(--text-muted)", fontSize: "14.5px", marginTop: "10px", lineHeight: 1.55 }}>{subtitle}</div>
 
           <form action={formAction}>
             <div style={{ display: "flex", flexDirection: "column", gap: "13px", marginTop: "22px" }}>
@@ -152,12 +133,12 @@ export default function LoginPage() {
               disabled={pending}
               style={{
                 width: "100%",
-                marginTop: "18px",
+                marginTop: "20px",
                 padding: "11px",
-                borderRadius: "9px",
-                border: "1px solid var(--accent)",
-                background: "var(--accent)",
-                color: "oklch(0.99 0 0)",
+                borderRadius: "8px",
+                border: "1px solid var(--ink)",
+                background: "var(--ink)",
+                color: "var(--on-ink)",
                 font: "inherit",
                 fontSize: "14px",
                 fontWeight: 600,
@@ -171,7 +152,7 @@ export default function LoginPage() {
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0" }}>
             <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
-            <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: "11px", color: "var(--text-faint)" }}>or</span>
+            <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>or</span>
             <div style={{ flex: 1, height: "1px", background: "var(--border)" }} />
           </div>
 
@@ -182,9 +163,9 @@ export default function LoginPage() {
             style={{
               width: "100%",
               padding: "10px",
-              borderRadius: "9px",
-              border: "1px solid var(--border)",
-              background: "var(--bg-elevated)",
+              borderRadius: "8px",
+              border: "1px solid var(--border-strong)",
+              background: "transparent",
               color: "var(--text)",
               font: "inherit",
               fontSize: "13.5px",
@@ -224,16 +205,18 @@ export default function LoginPage() {
           )}
         </div>
 
-        <div style={{ textAlign: "center", marginTop: "18px", fontSize: "13px", color: "var(--text-muted)" }}>
+        <div style={{ marginTop: "28px", fontSize: "13.5px", color: "var(--text-muted)" }}>
           {switchPrompt}{" "}
           <button
             onClick={() => setIsSignup((v) => !v)}
             style={{
               border: "none",
               background: "none",
-              color: "var(--accent)",
-              fontSize: "13px",
+              color: "var(--text)",
+              fontSize: "13.5px",
               fontWeight: 600,
+              textDecoration: "underline",
+              textUnderlineOffset: "3px",
               cursor: "pointer",
               fontFamily: "inherit",
               padding: 0,

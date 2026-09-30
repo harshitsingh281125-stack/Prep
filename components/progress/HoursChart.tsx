@@ -16,12 +16,7 @@ export default function HoursChart({ bars }: { bars: WeekBar[] }) {
 
   return (
     <div
-      style={{
-        background: "var(--panel)",
-        border: "1px solid var(--border)",
-        borderRadius: "12px",
-        padding: "18px",
-      }}
+      style={{ borderTop: "1px solid var(--border)", paddingTop: "16px" }}
     >
       <div
         style={{
@@ -31,17 +26,23 @@ export default function HoursChart({ bars }: { bars: WeekBar[] }) {
           marginBottom: "16px",
         }}
       >
-        <div style={{ fontSize: "13px", fontWeight: 600 }}>Hours: logged vs planned</div>
+        <div style={{ fontSize: "14px", fontWeight: 600 }}>Hours, logged vs planned</div>
         <div
           style={{
             display: "flex",
-            gap: "12px",
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: "11px",
+            gap: "14px",
+            fontSize: "12.5px",
+            color: "var(--text-faint)",
           }}
         >
-          <span style={{ color: "var(--accent)" }}>■ logged</span>
-          <span style={{ color: "var(--text-faint)" }}>■ planned</span>
+          <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: "var(--ink)" }} />
+            logged
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: "var(--border-strong)" }} />
+            planned
+          </span>
         </div>
       </div>
 
@@ -68,8 +69,8 @@ export default function HoursChart({ bars }: { bars: WeekBar[] }) {
                   style={{
                     width: "13px",
                     height: `${Math.max(2, (b.loggedHours / max) * CHART_HEIGHT)}px`,
-                    background: "var(--accent)",
-                    borderRadius: "3px 3px 0 0",
+                    background: "var(--ink)",
+                    borderRadius: "2px 2px 0 0",
                   }}
                 />
                 <div
@@ -78,14 +79,13 @@ export default function HoursChart({ bars }: { bars: WeekBar[] }) {
                     width: "13px",
                     height: `${Math.max(2, (b.plannedHours / max) * CHART_HEIGHT)}px`,
                     background: "var(--border-strong)",
-                    borderRadius: "3px 3px 0 0",
+                    borderRadius: "2px 2px 0 0",
                   }}
                 />
               </div>
               <div
                 style={{
-                  fontFamily: "'IBM Plex Mono',monospace",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   color: "var(--text-faint)",
                 }}
               >
@@ -108,11 +108,11 @@ export function EmptyChart({ message }: { message: string }) {
         alignItems: "center",
         justifyContent: "center",
         textAlign: "center",
-        fontSize: "12.5px",
+        fontSize: "13px",
         color: "var(--text-faint)",
-        border: "1px dashed var(--border)",
+        background: "var(--bg-sunken)",
         borderRadius: "8px",
-        padding: "0 16px",
+        padding: "0 24px",
       }}
     >
       {message}

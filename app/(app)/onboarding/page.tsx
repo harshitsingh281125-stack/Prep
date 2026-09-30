@@ -30,7 +30,7 @@ export default async function OnboardingPage() {
 
   return (
     <>
-      <Header title="New roadmap" subtitle="Five questions, then a roadmap you'll actually be held to." />
+      <Header maxWidth={940} title="New roadmap" subtitle="Five questions, then a roadmap you'll actually be held to." />
       <ContentArea maxWidth={940}>
         <OnboardingWizard atLimit={atLimit} maxRoadmaps={maxRoadmaps} />
       </ContentArea>

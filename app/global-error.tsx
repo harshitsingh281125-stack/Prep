@@ -33,7 +33,7 @@ export default function GlobalError({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+          fontFamily: "'Instrument Sans', system-ui, sans-serif",
           background: "#14151a",
           color: "#f2f3f7",
           padding: "28px",

@@ -80,8 +80,10 @@
 
 ## 5. Design-fidelity rules
 
-20. **The pasted design (`Prep.dc.html`) is the source of truth for UI.** Tokens,
-    spacing, and screen structure come from it — see [design.md](./design.md).
+20. **[design.md](./design.md) is the source of truth for UI.** Tokens, type,
+    spacing, and screen structure come from it. *(Until 2026-09-28 this rule
+    pointed at the pasted design source; the owner-requested redesign replaced
+    that look, and design.md now describes the redesign.)*
 21. **Light + dark both ship.** Every color goes through an OKLCH token; no raw
     hex in components (the print view is the one allowed exception).
     *Exercised in Phase 5:* `app/(print)/print.css` is the only raw-hex surface and

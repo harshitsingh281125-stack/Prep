@@ -58,12 +58,7 @@ export default function AccuracyChart({
 
   return (
     <div
-      style={{
-        background: "var(--panel)",
-        border: "1px solid var(--border)",
-        borderRadius: "12px",
-        padding: "18px",
-      }}
+      style={{ borderTop: "1px solid var(--border)", paddingTop: "16px" }}
     >
       <div
         style={{
@@ -74,13 +69,12 @@ export default function AccuracyChart({
           gap: "12px",
         }}
       >
-        <div style={{ fontSize: "13px", fontWeight: 600 }}>
-          Recall accuracy · last {points.length || 0} block{points.length === 1 ? "" : "s"}
+        <div style={{ fontSize: "14px", fontWeight: 600 }}>
+          Recall accuracy, last {points.length || 0} block{points.length === 1 ? "" : "s"}
         </div>
         <div
           style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: "12px",
+            fontSize: "12.5px",
             color,
             flex: "0 0 auto",
           }}
@@ -108,7 +102,7 @@ export default function AccuracyChart({
               x={PLOT_LEFT - 5}
               y={toY(v) + 3}
               textAnchor="end"
-              fontFamily="IBM Plex Mono, monospace"
+              fontFamily="var(--font-mono)"
               fontSize="9"
               fill="var(--text-faint)"
             >

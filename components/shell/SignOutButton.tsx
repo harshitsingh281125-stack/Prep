@@ -9,6 +9,8 @@ export default function SignOutButton() {
       <button
         type="submit"
         title="Sign out"
+        aria-label="Sign out"
+        className="nav-link"
         style={{
           border: "none",
           background: "none",

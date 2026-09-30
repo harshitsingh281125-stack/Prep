@@ -53,7 +53,7 @@ export default async function ProgressPage() {
   if (!roadmapRow) {
     return (
       <>
-        <Header title="Progress" subtitle="Honest pace vs. plan — including when you're behind." />
+        <Header maxWidth={1000} title="Progress" subtitle="Honest pace vs. plan — including when you're behind." />
         <ContentArea maxWidth={1000}>
           <EmptyState />
         </ContentArea>
@@ -139,21 +139,12 @@ export default async function ProgressPage() {
 
   return (
     <>
-      <Header
+      <Header maxWidth={1000}
         title="Progress"
         subtitle={roadmapRow.title}
         tag={
-          <span
-            style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: "11px",
-              color: st.color,
-              background: st.soft,
-              border: "1px solid " + st.color,
-              borderRadius: "6px",
-              padding: "4px 10px",
-            }}
-          >
+          <span style={{ display: "flex", alignItems: "center", gap: "7px", fontSize: "13px", color: st.color }}>
+            <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: st.color }} />
             {st.label}
           </span>
         }
@@ -172,19 +163,19 @@ export default async function ProgressPage() {
           />
         )}
 
-        <LogHoursForm roadmapId={roadmapId} topics={topicOptions} />
-
-        {/* Stat tiles */}
+        {/* Stat row — figures in the serif, hairline dividers, no boxes. */}
         <div
-          className="grid-4"
+          className="grid-4 stat-row"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "12px",
-            marginBottom: "22px",
+            borderTop: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border)",
+            marginBottom: "48px",
           }}
         >
           <StatTile
+            first
             testId="stat-hours"
             label="Hours logged"
             value={`${logged}`}
@@ -223,25 +214,18 @@ export default async function ProgressPage() {
         </div>
 
         {/* Charts */}
-        <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "22px" }}>
+        <div className="grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "48px", marginBottom: "48px" }}>
           <HoursChart bars={bars} />
           <AccuracyChart points={points} overall={accuracy} direction={direction} />
         </div>
 
         {/* Blockers */}
-        <div
-          style={{
-            background: "var(--panel)",
-            border: "1px solid var(--border)",
-            borderRadius: "12px",
-            padding: "18px",
-          }}
-        >
-          <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: "14px" }}>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
+          <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "12px" }}>
             What&apos;s actually blocking you
           </div>
           {blockers.length === 0 ? (
-            <div style={{ fontSize: "13.5px", color: "var(--text-muted)", lineHeight: 1.55 }}>
+            <div style={{ fontFamily: "var(--font-serif)", fontSize: "18px", color: "var(--text-muted)", lineHeight: 1.55 }}>
               Nothing is blocking you right now — you&apos;re {elapsed} week
               {elapsed === 1 ? "" : "s"} in with {logged}h logged against {expected}h expected.
             </div>
@@ -259,14 +243,16 @@ export default async function ProgressPage() {
                       flex: "0 0 auto",
                     }}
                   />
-                  <div style={{ fontSize: "13.5px", lineHeight: 1.55 }}>
-                    <b>{b.head}</b> <span style={{ color: "var(--text-muted)" }}>{b.body}</span>
+                  <div style={{ fontSize: "15px", lineHeight: 1.55 }}>
+                    <b style={{ fontWeight: 600 }}>{b.head}</b> <span style={{ color: "var(--text-muted)" }}>{b.body}</span>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        <LogHoursForm roadmapId={roadmapId} topics={topicOptions} />
       </ContentArea>
     </>
   );
@@ -296,33 +282,16 @@ function PaceBanner({
       data-testid="pace-banner"
       style={{
         background: "var(--red-soft)",
-        border: "1px solid var(--red)",
-        borderRadius: "12px",
-        padding: "18px 20px",
-        marginBottom: "22px",
-        display: "flex",
-        gap: "16px",
-        alignItems: "flex-start",
+        borderLeft: "2px solid var(--red)",
+        borderRadius: "0 10px 10px 0",
+        padding: "16px 20px",
+        marginBottom: "36px",
       }}
     >
-      <div
-        style={{
-          fontFamily: "'IBM Plex Mono',monospace",
-          fontSize: "12px",
-          fontWeight: 600,
-          color: "var(--red)",
-          background: "var(--bg)",
-          border: "1px solid var(--red)",
-          borderRadius: "6px",
-          padding: "4px 10px",
-          letterSpacing: "0.05em",
-          flex: "0 0 auto",
-          marginTop: "2px",
-        }}
-      >
-        {stalled ? "STALLED" : "BEHIND PACE"}
+      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--red)", marginBottom: "4px" }}>
+        {stalled ? "Stalled" : "Behind pace"}
       </div>
-      <div style={{ fontSize: "14px", lineHeight: 1.6, textWrap: "pretty" }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: "18px", lineHeight: 1.5, textWrap: "pretty" }}>
         You&apos;ve logged <b>{logged} of {planned}</b> planned hours ({plannedPct}%).
         {pace !== null && (
           <>
@@ -351,7 +320,9 @@ function StatTile({
   valueColor,
   subColor,
   testId,
+  first,
 }: {
+  first?: boolean;
   label: string;
   value: string;
   sub: string;
@@ -363,36 +334,26 @@ function StatTile({
     <div
       data-testid={testId}
       style={{
-        background: "var(--panel)",
-        border: "1px solid var(--border)",
-        borderRadius: "10px",
-        padding: "14px 16px",
+        padding: first ? "18px 20px 18px 0" : "18px 20px",
+        borderLeft: first ? "none" : "1px solid var(--border)",
       }}
     >
-      <div
-        style={{
-          fontFamily: "'IBM Plex Mono',monospace",
-          fontSize: "11px",
-          color: "var(--text-faint)",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
-      >
-        {label}
-      </div>
+      <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>{label}</div>
       <div
         data-testid={testId ? `${testId}-value` : undefined}
         style={{
-          fontSize: "24px",
-          fontWeight: 700,
+          fontFamily: "var(--font-serif)",
+          fontSize: "34px",
+          fontWeight: 500,
           letterSpacing: "-0.02em",
-          marginTop: "4px",
+          lineHeight: 1.1,
+          marginTop: "6px",
           color: valueColor,
         }}
       >
         {value}
       </div>
-      <div style={{ fontSize: "12px", marginTop: "2px", color: subColor ?? "var(--text-muted)" }}>{sub}</div>
+      <div style={{ fontSize: "12.5px", marginTop: "4px", color: subColor ?? "var(--text-faint)" }}>{sub}</div>
     </div>
   );
 }
@@ -401,26 +362,25 @@ function EmptyState() {
   return (
     <div
       style={{
-        border: "1px dashed var(--border)",
-        borderRadius: "12px",
-        padding: "48px 28px",
-        textAlign: "center",
+        borderTop: "1px solid var(--border)",
+        padding: "48px 0",
+        maxWidth: "56ch",
       }}
     >
-      <div style={{ fontSize: "15px", fontWeight: 600, marginBottom: "6px" }}>No roadmap to report on yet</div>
-      <div style={{ fontSize: "13.5px", color: "var(--text-muted)", marginBottom: "18px", lineHeight: 1.6 }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: "24px", marginBottom: "8px" }}>No roadmap to report on yet.</div>
+      <div style={{ fontSize: "15px", color: "var(--text-muted)", marginBottom: "24px", lineHeight: 1.6 }}>
         Progress is measured against a plan. Create a roadmap and log some study time,
         and this screen will tell you the truth about your pace.
       </div>
       <Link
         href="/onboarding"
+        className="btn-ink"
         style={{
           padding: "10px 18px",
-          borderRadius: "9px",
-          border: "1px solid var(--accent)",
-          background: "var(--accent)",
-          color: "oklch(0.99 0 0)",
-          fontSize: "13.5px",
+          borderRadius: "8px",
+          background: "var(--ink)",
+          color: "var(--on-ink)",
+          fontSize: "14px",
           fontWeight: 600,
           textDecoration: "none",
         }}

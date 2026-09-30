@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 
 export type RoadmapCardData = {
   id: string;
@@ -26,13 +26,16 @@ function relativeCreated(iso: string): string {
   return `Created ${days} days ago`;
 }
 
-// A roadmap card (design's library card): title/subtitle, status badge, progress
-// bar (fill = status color), mono stat chips, footer. Whole card navigates in;
+// A roadmap row in the Library list: serif title, status as dot + word, a
+// hairline progress track, and the figures as plain text. Whole row navigates in;
 // the delete control frees a quota slot (Rule 18) via the DELETE route.
 export default function RoadmapCard({ data }: { data: RoadmapCardData }) {
   const router = useRouter();
-  const [hover, setHover] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // /roadmap/[id] has no loading.tsx (it can 404 — see recall/loading.tsx), so
+  // the row itself shows the navigation is in flight: router.push inside a
+  // transition keeps `navigating` true until the new page has rendered.
+  const [navigating, startNavigation] = useTransition();
 
   async function onDelete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -50,137 +53,95 @@ export default function RoadmapCard({ data }: { data: RoadmapCardData }) {
 
   return (
     <div
-      onClick={() => router.push(`/roadmap/${data.id}`)}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      className={"hover-row" + (navigating ? " is-navigating" : "")}
+      aria-busy={navigating || undefined}
+      onClick={() => startNavigation(() => router.push(`/roadmap/${data.id}`))}
       style={{
-        background: "var(--panel)",
-        border: "1px solid " + (hover ? "var(--border-strong)" : "var(--border)"),
-        borderRadius: "14px",
-        padding: "20px",
+        borderBottom: "1px solid var(--border)",
+        padding: "22px 12px",
         cursor: "pointer",
-        display: "flex",
-        flexDirection: "column",
-        gap: "14px",
-        opacity: deleting ? 0.5 : 1,
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        gap: "8px 24px",
+        alignItems: "baseline",
+        opacity: deleting ? 0.5 : undefined,
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px" }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: "16px", fontWeight: 600, letterSpacing: "-0.01em" }}>{data.title}</div>
-          <div style={{ fontSize: "12.5px", color: "var(--text-muted)", marginTop: "2px" }}>
-            {data.subtitle}
-          </div>
-        </div>
-        <span
-          style={{
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: "11px",
-            color: data.statusColor,
-            background: data.statusSoft,
-            border: "1px solid " + data.statusColor,
-            borderRadius: "6px",
-            padding: "3px 9px",
-            flex: "0 0 auto",
-          }}
-        >
-          {data.statusLabel}
-        </span>
-      </div>
-
-      <div>
+      <div style={{ minWidth: 0 }}>
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontSize: "11.5px",
-            color: "var(--text-muted)",
-            marginBottom: "6px",
+            fontFamily: "var(--font-serif)",
+            fontSize: "21px",
+            fontWeight: 500,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.25,
           }}
         >
-          <span>
-            {data.hoursLogged} / {data.hoursPlanned}h logged
-          </span>
-          <span>{data.pct}%</span>
+          {data.title}
         </div>
-        <div style={{ height: "7px", borderRadius: "4px", background: "var(--bg-elevated)", overflow: "hidden" }}>
+        <div style={{ fontSize: "13.5px", color: "var(--text-muted)", marginTop: "4px" }}>{data.subtitle}</div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: "7px", fontSize: "13px", color: data.statusColor }}>
+        <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: data.statusColor }} />
+        {data.statusLabel}
+      </div>
+
+      {/* Progress: a hairline with the figures beside it, not a chunky bar. */}
+      <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "16px", marginTop: "10px" }}>
+        <div style={{ flex: 1, height: "3px", borderRadius: "2px", background: "var(--border)", overflow: "hidden" }}>
           <div
             style={{
               width: `${data.pct}%`,
               height: "100%",
               background: data.statusColor,
-              borderRadius: "4px",
               minWidth: data.pct > 0 ? "3px" : "0",
             }}
           />
         </div>
-      </div>
-
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        <Chip>
-          {data.mastered} / {data.total} mastered
-        </Chip>
-        {/* Recall + due chips arrive with Phase 2 (spaced repetition). */}
+        <span style={{ fontSize: "13px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+          {navigating && <span style={{ marginRight: "10px", color: "var(--text-faint)" }}>Opening…</span>}
+          <strong style={{ color: "var(--text)", fontWeight: 600 }}>{data.pct}%</strong>
+        </span>
       </div>
 
       <div
         style={{
+          gridColumn: "1 / -1",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          gap: "8px",
-          marginTop: "2px",
+          gap: "18px",
+          flexWrap: "wrap",
+          fontSize: "13px",
+          color: "var(--text-faint)",
         }}
       >
-        <span style={{ fontSize: "12px", color: "var(--text-faint)" }}>{relativeCreated(data.createdAt)}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button
-            onClick={onDelete}
-            disabled={deleting}
-            title="Delete roadmap"
-            style={{
-              border: "none",
-              background: "none",
-              color: "var(--text-faint)",
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: "12px",
-              cursor: deleting ? "default" : "pointer",
-              padding: 0,
-            }}
-          >
-            Delete
-          </button>
-          <span
-            style={{
-              fontFamily: "'IBM Plex Mono',monospace",
-              fontSize: "12px",
-              color: "var(--accent)",
-              fontWeight: 500,
-            }}
-          >
-            Open →
-          </span>
-        </div>
+        <span>
+          {data.mastered} / {data.total} mastered
+        </span>
+        <span>
+          {data.hoursLogged} / {data.hoursPlanned}h logged
+        </span>
+        <span>{relativeCreated(data.createdAt)}</span>
+        <span style={{ flex: 1 }} />
+        <button
+          onClick={onDelete}
+          disabled={deleting}
+          title="Delete roadmap"
+          className="nav-link"
+          style={{
+            border: "none",
+            background: "none",
+            color: "var(--text-faint)",
+            font: "inherit",
+            fontSize: "13px",
+            cursor: deleting ? "default" : "pointer",
+            padding: 0,
+          }}
+        >
+          Delete
+        </button>
       </div>
     </div>
-  );
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      style={{
-        fontFamily: "'IBM Plex Mono',monospace",
-        fontSize: "11px",
-        color: "var(--text-muted)",
-        background: "var(--bg-elevated)",
-        border: "1px solid var(--border)",
-        borderRadius: "6px",
-        padding: "3px 8px",
-      }}
-    >
-      {children}
-    </span>
   );
 }

@@ -1,9 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 
 /**
- * The scrolling content area under the header (padding:28px in the design).
- * `maxWidth` centers content per-screen (Library 920, Onboarding/Topic 940,
- * Roadmap/Progress 1000, Recall 740 — see design.md §4).
+ * The content column under the page header. `maxWidth` centres content
+ * per-screen (Library 920, Onboarding/Topic 940, Roadmap/Progress 1000,
+ * Recall 740 — see design.md §4); pass the same value to <Header>.
+ * Scrolling is owned by <main> in AppShell so header and content move together.
  */
 export default function ContentArea({
   maxWidth,
@@ -14,7 +15,7 @@ export default function ContentArea({
 }) {
   const inner: CSSProperties = { maxWidth: `${maxWidth}px`, margin: "0 auto" };
   return (
-    <div className="app-content" style={{ flex: 1, overflowY: "auto", padding: "28px" }}>
+    <div className="app-content" style={{ flex: 1, padding: "0 28px 72px" }}>
       <div style={inner}>{children}</div>
     </div>
   );

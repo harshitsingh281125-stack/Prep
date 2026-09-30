@@ -1,3 +1,4 @@
+import PendingLink from "@/components/shell/PendingLink";
 import { notFound } from "next/navigation";
 import Header from "@/components/shell/Header";
 import ContentArea from "@/components/shell/ContentArea";
@@ -46,14 +47,19 @@ export default async function TopicPage({
 
   return (
     <>
-      <Header title={topic.name} subtitle={week ? `Week ${week.n} · ${week.title}` : undefined} />
+      <Header
+        maxWidth={940}
+        eyebrow={
+          <PendingLink href={`/roadmap/${roadmapId}`} className="nav-link" style={{ color: "var(--text-muted)" }}>
+            ← Roadmap
+          </PendingLink>
+        }
+        title={topic.name} subtitle={week ? `Week ${week.n} · ${week.title}` : undefined} />
       <ContentArea maxWidth={940}>
         <TopicStudy
-          roadmapId={roadmapId}
           topicId={topic.id}
           topicName={topic.name}
           status={(topic.status as TopicStatus) ?? "not_started"}
-          weekLabel={week ? `Week ${week.n} · ${week.title}` : "—"}
           killCriterion={week?.kill_criterion ?? "No kill criterion set for this week."}
           detail={detail}
           initialNote={note?.body ?? ""}

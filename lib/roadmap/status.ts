@@ -48,7 +48,7 @@ export function detailSourceMeta(source: DetailSource): {
 } {
   if (source === "rag")
     return {
-      label: "VETTED",
+      label: "Vetted",
       color: "var(--green)",
       soft: "var(--green-soft)",
       hint: "Study material generated, with resources grounded on the curated corpus — the links are real.",
@@ -62,13 +62,13 @@ export function detailSourceMeta(source: DetailSource): {
     };
   if (source === "seed")
     return {
-      label: "TEMPLATE",
+      label: "Template",
       color: "var(--text-muted)",
       soft: "var(--bg-elevated)",
       hint: "Generation failed, so this topic fell back to the hand-written seeded template.",
     };
   return {
-    label: "NO CONTENT",
+    label: "No content",
     color: "var(--text-faint)",
     soft: "transparent",
     hint: "No study material yet. Open the topic and press Generate with AI.",

@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { ONBOARDING_STEPS, NOT_SURE, weakAreasForRole } from "@/lib/seed/catalog";
 import type { OnboardingAnswers } from "@/lib/seed/types";
 
-const MONO = "'IBM Plex Mono',monospace";
-
 const EMPTY: OnboardingAnswers = { role: "", bar: "", timeline: "", hours: "", weak: [] };
 
 // The 5-question onboarding wizard (design: onboardingVals). Single-select
@@ -106,7 +104,7 @@ export default function OnboardingWizard({
       { label: "Hours / week", value: answers.hours || "—", filled: !!answers.hours },
       {
         label: "Focus",
-        value: answers.weak.length ? `${answers.weak.length} areas` : "—",
+        value: answers.weak.length ? `${answers.weak.length} area${answers.weak.length === 1 ? "" : "s"}` : "—",
         filled: answers.weak.length > 0,
       },
     ],
@@ -116,11 +114,11 @@ export default function OnboardingWizard({
   if (atLimit) return <LockedState maxRoadmaps={maxRoadmaps} onLibrary={() => router.push("/library")} />;
 
   return (
-    <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: "26px", alignItems: "start" }}>
+    <div className="grid-side" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 280px", gap: "56px", alignItems: "start" }}>
       {/* Left: the wizard */}
       <div>
         {/* Progress dots */}
-        <div style={{ display: "flex", gap: "6px", marginBottom: "22px" }}>
+        <div style={{ display: "flex", gap: "4px", marginBottom: "32px" }}>
           {steps.map((_, i) => {
             const clickable = i <= maxStep;
             return (
@@ -129,11 +127,11 @@ export default function OnboardingWizard({
                 onClick={() => clickable && jumpStep(i)}
                 style={{
                   flex: 1,
-                  height: "5px",
-                  borderRadius: "3px",
+                  height: "3px",
+                  borderRadius: "2px",
                   cursor: clickable ? "pointer" : "default",
-                  background:
-                    i < idx ? "var(--accent)" : i === idx ? "var(--accent-line)" : "var(--border)",
+                  background: i <= idx ? "var(--ink)" : "var(--border)",
+                  opacity: i === idx ? 0.45 : 1,
                 }}
               />
             );
@@ -142,7 +140,7 @@ export default function OnboardingWizard({
 
         {/* Answered-so-far summary (editable) */}
         {answeredSteps.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+          <div style={{ borderTop: "1px solid var(--border)", marginBottom: "36px" }}>
             {answeredSteps.map((st, i) => {
               const val = Array.isArray(answers[st.id])
                 ? (answers[st.id] as string[]).join(", ") || "—"
@@ -155,30 +153,27 @@ export default function OnboardingWizard({
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: "12px",
-                    background: "var(--panel)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "10px",
-                    padding: "10px 14px",
+                    borderBottom: "1px solid var(--border)",
+                    padding: "12px 0",
                   }}
                 >
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: MONO, fontSize: "11px", color: "var(--text-faint)" }}>
-                      0{i + 1} · {st.q}
-                    </div>
-                    <div style={{ fontSize: "13.5px", fontWeight: 500, marginTop: "2px" }}>{val}</div>
+                    <div style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>{st.q}</div>
+                    <div style={{ fontSize: "14.5px", fontWeight: 500, marginTop: "2px" }}>{val}</div>
                   </div>
                   <button
                     onClick={() => jumpStep(i)}
+                    className="nav-link"
                     style={{
                       border: "none",
                       background: "none",
                       color: "var(--text-faint)",
-                      fontFamily: MONO,
-                      fontSize: "12px",
+                      font: "inherit",
+                      fontSize: "13px",
                       cursor: "pointer",
                     }}
                   >
-                    edit
+                    Edit
                   </button>
                 </div>
               );
@@ -187,16 +182,25 @@ export default function OnboardingWizard({
         )}
 
         {/* Current question */}
-        <div style={{ fontFamily: MONO, fontSize: "12px", color: "var(--text-faint)", marginBottom: "8px" }}>
+        <div style={{ fontSize: "13px", color: "var(--text-faint)", marginBottom: "10px" }}>
           Question {idx + 1} of {steps.length}
         </div>
-        <div style={{ fontSize: "18px", fontWeight: 600, letterSpacing: "-0.01em", marginBottom: current.hint ? "6px" : "16px" }}>
+        <div
+          style={{
+            fontFamily: "var(--font-serif)",
+            fontSize: "28px",
+            fontWeight: 500,
+            letterSpacing: "-0.015em",
+            lineHeight: 1.2,
+            marginBottom: current.hint ? "10px" : "22px",
+          }}
+        >
           {current.q}
         </div>
         {/* Sets expectations about what the answer actually controls — see the
             weak-areas note in lib/seed/catalog.ts. */}
         {current.hint && (
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "16px", lineHeight: 1.5 }}>
+          <div style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "22px", lineHeight: 1.55, maxWidth: "60ch" }}>
             {current.hint}
           </div>
         )}
@@ -210,15 +214,15 @@ export default function OnboardingWizard({
                 key={label}
                 onClick={() => choose(label)}
                 style={{
-                  padding: "9px 14px",
-                  borderRadius: "8px",
+                  padding: "9px 16px",
+                  borderRadius: "999px",
                   cursor: "pointer",
                   font: "inherit",
-                  fontSize: "13.5px",
+                  fontSize: "14px",
                   fontWeight: 500,
-                  border: "1px solid " + (selected ? "var(--accent)" : "var(--border)"),
-                  background: selected ? "var(--accent-soft)" : "var(--bg-elevated)",
-                  color: selected ? "var(--accent)" : "var(--text)",
+                  border: "1px solid " + (selected ? "var(--ink)" : "var(--border-strong)"),
+                  background: selected ? "var(--ink)" : "transparent",
+                  color: selected ? "var(--on-ink)" : "var(--text)",
                 }}
               >
                 {label}
@@ -234,17 +238,17 @@ export default function OnboardingWizard({
               onClick={generate}
               disabled={!canGenerate || submitting}
               style={{
-                marginTop: "20px",
-                width: "100%",
-                padding: "11px",
+                marginTop: "32px",
+                padding: "11px 22px",
                 borderRadius: "8px",
                 font: "inherit",
                 fontSize: "14px",
                 fontWeight: 600,
                 cursor: canGenerate && !submitting ? "pointer" : "not-allowed",
-                border: "1px solid " + (canGenerate ? "var(--accent)" : "var(--border)"),
-                background: canGenerate ? "var(--accent)" : "var(--bg-elevated)",
-                color: canGenerate ? "oklch(0.99 0 0)" : "var(--text-faint)",
+                border: "1px solid " + (canGenerate ? "var(--ink)" : "var(--border)"),
+                background: canGenerate ? "var(--ink)" : "transparent",
+                color: canGenerate ? "var(--on-ink)" : "var(--text-faint)",
+                opacity: submitting ? 0.6 : 1,
               }}
             >
               {submitting
@@ -256,6 +260,11 @@ export default function OnboardingWizard({
             {error && (
               <div style={{ marginTop: "10px", fontSize: "13px", color: "var(--red)" }}>{error}</div>
             )}
+            {/* Generation takes a few seconds, and the roadmap route it lands on
+                has no loading.tsx (it can 404), so this placeholder stays up
+                through the call AND the navigation — `submitting` is only reset
+                on failure. */}
+            {submitting && <RoadmapDraftSkeleton />}
           </>
         )}
       </div>
@@ -264,25 +273,13 @@ export default function OnboardingWizard({
       <div
         style={{
           position: "sticky",
-          top: 0,
-          background: "var(--panel)",
-          border: "1px solid var(--border)",
+          top: "24px",
+          background: "var(--bg-sunken)",
           borderRadius: "12px",
-          padding: "18px",
+          padding: "20px",
         }}
       >
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: "11px",
-            color: "var(--text-faint)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            marginBottom: "12px",
-          }}
-        >
-          Your plan, live
-        </div>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: "19px", marginBottom: "10px" }}>Your plan, live</div>
         {previewRows.map((r) => (
           <div
             key={r.label}
@@ -290,16 +287,15 @@ export default function OnboardingWizard({
               display: "flex",
               justifyContent: "space-between",
               gap: "12px",
-              padding: "8px 0",
+              padding: "9px 0",
               borderBottom: "1px solid var(--border)",
-              fontSize: "12.5px",
+              fontSize: "13px",
             }}
           >
             <span style={{ color: "var(--text-faint)" }}>{r.label}</span>
             <span
               style={{
-                fontWeight: 600,
-                fontFamily: MONO,
+                fontWeight: 500,
                 color: r.filled ? "var(--text)" : "var(--text-faint)",
                 textAlign: "right",
               }}
@@ -308,10 +304,38 @@ export default function OnboardingWizard({
             </span>
           </div>
         ))}
-        <div style={{ fontSize: "12px", color: "var(--text-muted)", lineHeight: 1.55, marginTop: "12px" }}>
-          A {answers.timeline || "5-week"} plan, ~3 topics per week, front-loaded on your weak areas.
+        <div style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: 1.55, marginTop: "14px" }}>
+          {planPhrase(answers.timeline)}, ~3 topics per week, front-loaded on your weak areas.
           Every week ships with a kill criterion — no &ldquo;mastered&rdquo; without proof.
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** "5 weeks" → "A 5-week plan", "4 months" → "A 4-month plan", "No date yet" → "An open-ended plan". */
+function planPhrase(timeline: string): string {
+  if (!timeline) return "A 5-week plan";
+  const m = timeline.match(/^(\d+) (week|month)s?$/);
+  return m ? `A ${m[1]}-${m[2]} plan` : "An open-ended plan";
+}
+
+function RoadmapDraftSkeleton() {
+  return (
+    <div data-testid="roadmap-generating" aria-busy="true" style={{ marginTop: "36px" }}>
+      <div role="status" style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "14px" }}>
+        Drafting weeks, topics and a kill criterion for each week — usually 5–20 seconds.
+      </div>
+      <div style={{ borderTop: "1px solid var(--border)" }}>
+        {["46%", "38%", "52%"].map((w, i) => (
+          <div
+            key={i}
+            style={{ display: "flex", alignItems: "center", gap: "16px", padding: "18px 0", borderBottom: "1px solid var(--border)" }}
+          >
+            <span style={{ fontSize: "13px", color: "var(--text-faint)", flex: "0 0 58px" }}>Week {i + 1}</span>
+            <div className="skel" style={{ width: w, height: "18px" }} />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -321,28 +345,23 @@ function LockedState({ maxRoadmaps, onLibrary }: { maxRoadmaps: number; onLibrar
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        textAlign: "center",
-        padding: "60px 24px",
-        border: "1px dashed var(--border-strong)",
-        borderRadius: "16px",
-        background: "var(--bg-sunken)",
+        borderTop: "1px solid var(--border)",
+        padding: "48px 0",
+        maxWidth: "56ch",
       }}
     >
-      <div style={{ fontSize: "18px", fontWeight: 600 }}>You&rsquo;ve used all {maxRoadmaps} roadmap creations.</div>
-      <div style={{ color: "var(--text-muted)", marginTop: "6px", maxWidth: "44ch" }}>
+      <div style={{ fontFamily: "var(--font-serif)", fontSize: "24px" }}>You&rsquo;ve used all {maxRoadmaps} roadmap creations.</div>
+      <div style={{ color: "var(--text-muted)", marginTop: "8px", fontSize: "15px", lineHeight: 1.6 }}>
         The free plan caps you at {maxRoadmaps}. Delete one from your library to make room for a new plan.
       </div>
       <button
         onClick={onLibrary}
         style={{
-          marginTop: "22px",
-          padding: "11px 20px",
-          borderRadius: "9px",
+          marginTop: "24px",
+          padding: "10px 18px",
+          borderRadius: "8px",
           border: "1px solid var(--border-strong)",
-          background: "var(--bg-elevated)",
+          background: "transparent",
           color: "var(--text)",
           font: "inherit",
           fontSize: "14px",

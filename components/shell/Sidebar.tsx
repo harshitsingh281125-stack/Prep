@@ -12,21 +12,21 @@ export type SidebarUser = {
   initials: string;
 };
 
-/* Nav item style — from the design's navStyle(): active gets an elevated bg +
-   border + full text color + 600 weight; inactive is muted. */
+/* Nav item style: no bordered pill. Active reads as full-strength text on a
+   faint page-coloured lift; inactive is muted and brightens on hover (.nav-link). */
 function navStyle(active: boolean): CSSProperties {
   return {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    padding: "8px 10px",
-    borderRadius: "7px",
-    border: "1px solid " + (active ? "var(--border)" : "transparent"),
-    background: active ? "var(--bg-elevated)" : "transparent",
+    padding: "7px 10px",
+    borderRadius: "6px",
+    background: active ? "var(--bg)" : "transparent",
+    boxShadow: active ? "0 0 0 1px var(--border)" : "none",
     color: active ? "var(--text)" : "var(--text-muted)",
     cursor: "pointer",
     font: "inherit",
-    fontSize: "13px",
+    fontSize: "13.5px",
     fontWeight: active ? 600 : 500,
     textDecoration: "none",
   };
@@ -85,17 +85,12 @@ const NAV: NavItem[] = [
   },
 ];
 
-/* Due-count badge from the design's recallBadgeStyle — mono, pill, accent-soft. */
+/* Due-count: a bare number in the accent colour — a count, not a pill. */
 const badgeStyle: CSSProperties = {
-  fontFamily: "'IBM Plex Mono',monospace",
-  fontSize: "11px",
-  minWidth: "18px",
-  textAlign: "center",
-  padding: "1px 6px",
-  borderRadius: "10px",
-  background: "var(--accent-soft)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "11.5px",
   color: "var(--accent)",
-  fontWeight: 600,
+  fontWeight: 500,
 };
 
 export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; recallDue?: number }) {
@@ -112,35 +107,20 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
         background: "var(--bg-sunken)",
         display: "flex",
         flexDirection: "column",
-        padding: "16px 12px",
+        padding: "22px 12px 14px",
       }}
     >
-      {/* Logo mark */}
-      <div className="app-brand" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 8px 18px" }}>
-        <div
-          style={{
-            width: "30px",
-            height: "30px",
-            borderRadius: "8px",
-            background: "var(--accent)",
-            color: "oklch(0.99 0 0)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "'IBM Plex Mono',monospace",
-            fontWeight: 600,
-            fontSize: "16px",
-          }}
-        >
-          P
-        </div>
-        <div style={{ lineHeight: 1.2 }}>
-          <div style={{ fontWeight: 600, letterSpacing: "-0.01em" }}>Prep</div>
-          <div style={{ fontSize: "11px", color: "var(--text-faint)", fontFamily: "'IBM Plex Mono',monospace" }}>
-            interview OS
-          </div>
-        </div>
-      </div>
+      {/* Wordmark — typographic, no logo tile. */}
+      <Link
+        href="/library"
+        className="app-brand"
+        style={{ display: "flex", alignItems: "baseline", gap: "8px", padding: "4px 10px 22px", color: "var(--text)" }}
+      >
+        <span style={{ fontFamily: "var(--font-serif)", fontSize: "24px", fontWeight: 500, letterSpacing: "-0.02em", lineHeight: 1 }}>
+          Prep
+        </span>
+        <span style={{ fontSize: "12px", color: "var(--text-faint)" }}>interview notebook</span>
+      </Link>
 
       {/* Nav */}
       <nav className="app-nav" style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
@@ -155,6 +135,7 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
               // background — information a sighted mouse user gets for free and a
               // screen-reader user got not at all.
               aria-current={active ? "page" : undefined}
+              className="nav-link"
               style={navStyle(active)}
             >
               {item.icon}
@@ -182,30 +163,13 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
         })}
       </nav>
 
-      {/* New roadmap (routes to onboarding — a Phase 1 screen; safe placeholder link) */}
+      {/* New roadmap — a quiet row under the nav, not a second primary button. */}
       <Link
         href="/onboarding"
-        className="app-new-roadmap"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "7px",
-          width: "100%",
-          padding: "9px",
-          marginTop: "12px",
-          borderRadius: "8px",
-          font: "inherit",
-          fontSize: "13px",
-          fontWeight: 600,
-          cursor: "pointer",
-          border: "1px solid var(--accent)",
-          background: "var(--accent-soft)",
-          color: "var(--accent)",
-          textDecoration: "none",
-        }}
+        className="app-new-roadmap nav-link"
+        style={{ ...navStyle(pathname === "/onboarding"), marginTop: "14px" }}
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.8}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
           <path d="M8 3.2v9.6M3.2 8h9.6" />
         </svg>
         New roadmap
@@ -213,22 +177,18 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
 
       <div className="app-spacer" style={{ flex: 1 }} />
 
-      {/* Theme toggle */}
-      <ThemeToggle />
-
-      {/* User card — real identity + working sign-out */}
-      <div className="app-user" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px", borderTop: "1px solid var(--border)" }}>
+      {/* User row — identity, theme, sign-out on one line. */}
+      <div className="app-user" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 6px 2px 10px", borderTop: "1px solid var(--border)" }}>
         <div
           style={{
-            width: "28px",
-            height: "28px",
+            width: "26px",
+            height: "26px",
             borderRadius: "50%",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border-strong)",
+            background: "var(--border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "12px",
+            fontSize: "11px",
             fontWeight: 600,
             color: "var(--text-muted)",
             flex: "0 0 auto",
@@ -236,7 +196,7 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
         >
           {user.initials}
         </div>
-        <div style={{ lineHeight: 1.25, flex: 1, minWidth: 0 }}>
+        <div style={{ lineHeight: 1.3, flex: 1, minWidth: 0 }}>
           <div
             style={{
               fontSize: "13px",
@@ -250,17 +210,17 @@ export default function Sidebar({ user, recallDue = 0 }: { user: SidebarUser; re
           </div>
           <div
             style={{
-              fontSize: "11px",
+              fontSize: "11.5px",
               color: "var(--text-faint)",
-              fontFamily: "'IBM Plex Mono',monospace",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {user.track ?? "no track set"}
+            {user.track ?? "No track set"}
           </div>
         </div>
+        <ThemeToggle />
         <SignOutButton />
       </div>
     </aside>
